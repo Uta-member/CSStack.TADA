@@ -9,7 +9,20 @@
     <Version>0.0.1</Version>
     <Authors>Uta Sugane</Authors>
     <Description>Transaction-Aware Domain Architecture(TADA)で実装する際に便利なインターフェースやクラスをまとめたライブラリ。</Description>
+    <SignAssembly>False</SignAssembly>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/Uta-member/CSStack.TADA</RepositoryUrl>
+    <PackageTags>TADA;DDD;CSStack;</PackageTags>
+    <PackageReleaseNotes>初回リリース（試験的）</PackageReleaseNotes>
+    <PackageLicenseExpression> MIT</PackageLicenseExpression>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\README.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.Common" Version="4.8.0" />
