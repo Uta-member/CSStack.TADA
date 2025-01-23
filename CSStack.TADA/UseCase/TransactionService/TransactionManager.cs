@@ -5,111 +5,167 @@ namespace CSStack.TADA
     /// <summary>
     /// トランザクション管理クラス
     /// </summary>
-    /// <typeparam name="TSessionIdentifier"></typeparam>
-    public sealed class TransactionManager<TSessionIdentifier> : ITransactionManager<TSessionIdentifier>
-        where TSessionIdentifier : Enum
+    public sealed class TransactionManager : ITransactionManager
     {
         private readonly IServiceProvider _serviceProvider;
-        private readonly ITransactionTypeResolver<TSessionIdentifier> _transactionTypeResolver;
+        private readonly Dictionary<Type, dynamic> _sessions = new();
 
         /// <summary>
         /// コンストラクタ
         /// </summary>
         /// <param name="serviceProvider"></param>
-        /// <param name="transactionTypeResolver"></param>
-        public TransactionManager(
-            IServiceProvider serviceProvider,
-            ITransactionTypeResolver<TSessionIdentifier> transactionTypeResolver)
+        public TransactionManager(IServiceProvider serviceProvider)
         {
             _serviceProvider = serviceProvider;
-            _transactionTypeResolver = transactionTypeResolver;
         }
 
         /// <summary>
-        /// トランザクションを実行する
+        /// トランザクション因子
         /// </summary>
-        /// <param name="transactionTargets"></param>
-        /// <param name="transactionAsyncFunction"></param>
-        /// <param name="rollbackHandler"></param>
+        public IReadOnlyDictionary<Type, dynamic> Sessions => _sessions;
+
+        /// <summary>
+        /// トランザクションを開始する
+        /// </summary>
+        /// <typeparam name="TSession"></typeparam>
+        /// <returns></returns>
+        public async ValueTask BeginTransactionAsync<TSession>() where TSession : IDisposable
+        {
+            if (_sessions.ContainsKey(typeof(TSession)))
+            {
+                return;
+            }
+            var transactionService = GetTransactionService<TSession>();
+            var session = await transactionService.BeginAsync();
+            _sessions.Add(typeof(TSession), session);
+        }
+
+        /// <summary>
+        /// トランザクションを開始する
+        /// </summary>
+        /// <returns></returns>
+        public async ValueTask BeginTransactionAsync(Type sessionType)
+        {
+            if (_sessions.ContainsKey(sessionType))
+            {
+                return;
+            }
+            var transactionService = GetTransactionServiceBySessionType(sessionType);
+            var session = await transactionService.BeginAsync();
+            _sessions.Add(sessionType, session);
+        }
+
+        /// <summary>
+        /// 複数のトランザクションを開始する
+        /// </summary>
+        /// <param name="sessionTypes"></param>
+        /// <returns></returns>
+        public async ValueTask BeginTransactionsAsync(ImmutableList<Type> sessionTypes)
+        {
+            foreach (var sessionType in sessionTypes)
+            {
+                await BeginTransactionAsync(sessionType);
+            }
+        }
+
+        /// <summary>
+        /// トランザクションをコミットする
+        /// </summary>
+        public async ValueTask CommitAsync()
+        {
+            foreach (var session in _sessions)
+            {
+                var transactionService = GetTransactionServiceBySessionType(session.Key);
+                await transactionService.CommitAsync(session.Value);
+            }
+            _sessions.Clear();
+        }
+
+        /// <summary>
+        /// トランザクション実行
+        /// </summary>
+        /// <param name="sessionTypes"></param>
+        /// <param name="transactionFunction"></param>
+        /// <param name="beforeRollbackHandler"></param>
         /// <returns></returns>
         public async ValueTask ExecuteTransactionAsync(
-            ImmutableList<TSessionIdentifier> transactionTargets,
-            Func<Dictionary<TSessionIdentifier, IDisposable>, ValueTask> transactionAsyncFunction,
-            Func<Exception, ValueTask>? rollbackHandler = null)
+            ImmutableList<Type> sessionTypes,
+            Func<TransactionSessions, ValueTask> transactionFunction,
+            Func<Exception, ValueTask>? beforeRollbackHandler = null)
         {
-            var sessionDictionary = new Dictionary<TSessionIdentifier, IDisposable>();
-            var transactionServices = new Dictionary<Type, KeyValuePair<ITransactionService<IDisposable>, IDisposable>>(
-                );
             try
             {
-                foreach (var transactionTarget in transactionTargets)
-                {
-                    var sessionType = _transactionTypeResolver.GetSessionType(transactionTarget);
-                    if (!transactionServices.ContainsKey(sessionType))
-                    {
-                        var transactionService = GetTransactionService(sessionType);
-                        using var session = await transactionService.BeginAsync();
-                        transactionServices.Add(
-                            sessionType,
-                            new KeyValuePair<ITransactionService<IDisposable>, IDisposable>(transactionService, session));
-                        sessionDictionary.Add(transactionTarget, session);
-                    }
-                    else
-                    {
-                        sessionDictionary.Add(transactionTarget, transactionServices[sessionType].Value);
-                    }
-                }
-            }
-            catch
-            {
-                sessionDictionary.Clear();
-                transactionServices.Clear();
-                throw;
-            }
-
-            try
-            {
-                await transactionAsyncFunction(sessionDictionary);
-                foreach (var transactionService in transactionServices)
-                {
-                    await transactionService.Value.Key.CommitAsync(transactionService.Value.Value);
-                }
+                await BeginTransactionsAsync(sessionTypes);
+                await transactionFunction.Invoke(new TransactionSessions(Sessions));
+                await CommitAsync();
             }
             catch (Exception ex)
             {
-                rollbackHandler?.Invoke(ex);
-                foreach (var transactionService in transactionServices)
+                if (beforeRollbackHandler != null)
                 {
-                    await transactionService.Value.Key.RollbackAsync(transactionService.Value.Value);
+                    await beforeRollbackHandler.Invoke(ex);
                 }
+                await RollbackAsync();
                 throw;
             }
             finally
             {
-                // 一応Disposeする
-                foreach (var session in sessionDictionary.Values)
-                {
-                    session.Dispose();
-                }
-                sessionDictionary.Clear();
-                transactionServices.Clear();
+                _sessions.Clear();
             }
         }
 
         /// <summary>
-        /// トランザクションサービスを取得する
+        /// トランザクション因子取得
+        /// </summary>
+        /// <typeparam name="TSession"></typeparam>
+        /// <returns></returns>
+        public TSession GetSession<TSession>()
+        {
+            return (TSession)_sessions[typeof(TSession)];
+        }
+
+        /// <summary>
+        /// トランザクション因子取得
         /// </summary>
         /// <param name="sessionType"></param>
         /// <returns></returns>
-        /// <exception cref="InvalidOperationException"></exception>
-        public ITransactionService<IDisposable> GetTransactionService(Type sessionType)
+        public object GetSession(Type sessionType)
         {
-            if (!typeof(IDisposable).IsAssignableFrom(sessionType))
+            return _sessions[sessionType];
+        }
+
+        /// <summary>
+        /// トランザクションをロールバックする
+        /// </summary>
+        public async ValueTask RollbackAsync()
+        {
+            foreach (var session in _sessions)
             {
-                throw new InvalidOperationException("トランザクションセッションの型がIDisposableではありません");
+                var transactionService = GetTransactionServiceBySessionType(session.Key);
+                await transactionService.RollbackAsync(session.Value);
             }
-            return _serviceProvider.GetService(typeof(ITransactionService<>).MakeGenericType(sessionType)) as ITransactionService<IDisposable> ??
-                throw new InvalidOperationException("管理されていないトランザクションサービスです");
+            _sessions.Clear();
+        }
+
+        private ITransactionService<TSession> GetTransactionService<TSession>() where TSession : IDisposable
+        {
+            var service = _serviceProvider.GetService(typeof(ITransactionService<>).MakeGenericType(typeof(TSession)));
+            if (service == null)
+            {
+                throw new InvalidOperationException($"No service found for {typeof(TSession).Name}");
+            }
+            return (ITransactionService<TSession>)service;
+        }
+
+        private dynamic GetTransactionServiceBySessionType(Type sessionType)
+        {
+            var serviceType = typeof(ITransactionService<>).MakeGenericType(sessionType);
+            var service = _serviceProvider.GetService(serviceType);
+            if (service == null)
+            {
+                throw new InvalidOperationException($"No service found for {sessionType.Name}");
+            }
+            return service;
         }
     }
 }

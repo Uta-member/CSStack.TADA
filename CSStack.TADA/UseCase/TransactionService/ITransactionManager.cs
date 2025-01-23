@@ -5,24 +5,18 @@ namespace CSStack.TADA
     /// <summary>
     /// トランザクション管理インターフェース
     /// </summary>
-    public interface ITransactionManager<TSessionIdentifier> where TSessionIdentifier : Enum
+    public interface ITransactionManager
     {
         /// <summary>
-        /// トランザクションを実行する
+        /// トランザクション実行
         /// </summary>
-        /// <param name="transactionTargets"></param>
-        /// <param name="transactionAsyncFunction"></param>
-        /// <param name="rollbackHandler"></param>
+        /// <param name="sessionTypes"></param>
+        /// <param name="transactionFunction"></param>
+        /// <param name="beforeRollbackHandler"></param>
         /// <returns></returns>
         ValueTask ExecuteTransactionAsync(
-            ImmutableList<TSessionIdentifier> transactionTargets,
-            Func<Dictionary<TSessionIdentifier, IDisposable>, ValueTask> transactionAsyncFunction,
-            Func<Exception, ValueTask>? rollbackHandler = null);
-
-        /// <summary>
-        /// トランザクションサービスを取得する
-        /// </summary>
-        /// <returns></returns>
-        ITransactionService<IDisposable> GetTransactionService(Type sessionType);
+            ImmutableList<Type> sessionTypes,
+            Func<TransactionSessions, ValueTask> transactionFunction,
+            Func<Exception, ValueTask>? beforeRollbackHandler = null);
     }
 }
