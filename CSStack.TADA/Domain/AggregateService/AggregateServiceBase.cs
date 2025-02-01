@@ -1,4 +1,6 @@
-﻿namespace CSStack.TADA
+﻿using Microsoft.CodeAnalysis;
+
+namespace CSStack.TADA
 {
     /// <summary>
     /// 集約サービスの基底クラス
@@ -27,6 +29,14 @@
         public AggregateServiceBase(TRepository repository)
         {
             Repository = repository;
+        }
+
+        /// <inheritdoc/>
+        public async ValueTask<Optional<TEntity>> GetEntityByIdentifierAsync(
+            TSession session,
+            TEntityIdentifier identifier)
+        {
+            return await Repository.FindByIdentifierAsync(session, identifier);
         }
     }
 }

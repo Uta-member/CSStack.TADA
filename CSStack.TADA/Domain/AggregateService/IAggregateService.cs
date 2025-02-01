@@ -1,4 +1,6 @@
-﻿namespace CSStack.TADA
+﻿using Microsoft.CodeAnalysis;
+
+namespace CSStack.TADA
 {
     /// <summary>
     /// 集約サービスのインターフェース
@@ -14,5 +16,12 @@
         where TEntityIdentifier : notnull
         where TSession : IDisposable
     {
+        /// <summary>
+        /// エンティティを取得する
+        /// </summary>
+        /// <param name="session"></param>
+        /// <param name="identifier"></param>
+        /// <returns></returns>
+        ValueTask<Optional<TEntity>> GetEntityByIdentifierAsync(TSession session, TEntityIdentifier identifier);
     }
 }

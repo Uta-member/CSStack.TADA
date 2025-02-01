@@ -6,14 +6,14 @@
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <Title>Transaction-Aware Domain Architecture Toolkit</Title>
-    <Version>0.0.4-alpha</Version>
+    <Version>0.0.4-beta</Version>
     <Authors>Uta Sugane</Authors>
     <Description>Transaction-Aware Domain Architecture(TADA)で実装する際に便利なインターフェースやクラスをまとめたライブラリ。</Description>
     <SignAssembly>False</SignAssembly>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/Uta-member/CSStack.TADA</RepositoryUrl>
     <PackageTags>TADA;DDD;CSStack;</PackageTags>
-    <PackageReleaseNotes>Microsoft.Extensions.DependencyInjection.Abstractionのバージョンを下げた</PackageReleaseNotes>
+    <PackageReleaseNotes>AggregateServiceにエンティティ取得メソッドを追加した</PackageReleaseNotes>
     <PackageLicenseExpression> MIT</PackageLicenseExpression>
   </PropertyGroup>
 
