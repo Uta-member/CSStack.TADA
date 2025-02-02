@@ -15,19 +15,19 @@ namespace CSStack.TADA
         where TEntityIdentifier : notnull
     {
         /// <summary>
-        /// 識別子から集約ルートを取得する。
+        /// 識別子からエンティティを取得する。
         /// </summary>
         /// <param name="session">トランザクションの因子</param>
-        /// <param name="identifier">集約ルートの識別子</param>
-        /// <returns>集約ルート</returns>
+        /// <param name="identifier">エンティティの識別子</param>
+        /// <returns>エンティティ</returns>
         ValueTask<Optional<TEntity>> FindByIdentifierAsync(TSession session, TEntityIdentifier identifier);
 
         /// <summary>
-        /// 集約を永続化する
+        /// エンティティを永続化する
         /// </summary>
         /// <param name="session">トランザクションの因子</param>
-        /// <param name="aggregateRoot">集約ルート</param>
+        /// <param name="entity">エンティティ</param>
         /// <param name="operateInfo">操作情報</param>
-        ValueTask SaveAsync(TSession session, TEntity aggregateRoot, TOperateInfo operateInfo);
+        ValueTask SaveAsync(TSession session, TEntity entity, TOperateInfo operateInfo);
     }
 }
