@@ -1,15 +1,16 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// 戻り値なしユースケースインターフェース
+    /// ユースケースコマンドインターフェース
     /// </summary>
     /// <typeparam name="TReq">ユースケースの引数</typeparam>
-    public interface IUseCaseWithoutRes<TReq> where TReq : IUseCaseDTO
+    public interface ICommandService<TReq> where TReq : ICommandServiceDTO
     {
         /// <summary>
-        /// ユースケースを実行する
+        /// ユースケースコマンドを実行する
         /// </summary>
         /// <param name="req"></param>
+        /// <returns></returns>
         ValueTask ExecuteAsync(TReq req);
     }
 }
