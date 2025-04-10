@@ -1,6 +1,4 @@
-﻿using Microsoft.CodeAnalysis;
-
-namespace CSStack.TADA
+﻿namespace CSStack.TADA
 {
     /// <summary>
     /// 集約サービスの基底クラス
