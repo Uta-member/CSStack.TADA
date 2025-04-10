@@ -67,7 +67,14 @@
         /// <returns>値が取得可能かどうか</returns>
         public bool TryGetValue(out TValue value)
         {
-            value = Value;
+            if (HasValue)
+            {
+                value = Value;
+            }
+            else
+            {
+                value = default!;
+            }
             return HasValue;
         }
     }

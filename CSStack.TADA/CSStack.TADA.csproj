@@ -6,14 +6,14 @@
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <Title>Transaction-Aware Domain Architecture Toolkit</Title>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Authors>Uta Sugane</Authors>
     <Description>Transaction-Aware Domain Architecture(TADA)で実装する際に便利なインターフェースやクラスをまとめたライブラリ。</Description>
     <SignAssembly>False</SignAssembly>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/Uta-member/CSStack.TADA</RepositoryUrl>
     <PackageTags>TADA;DDD;CSStack;</PackageTags>
-    <PackageReleaseNotes>Microsoft.CodeAnalysis.OptionalのOptionalをやめて、Optionalを独自実装した。</PackageReleaseNotes>
+    <PackageReleaseNotes>OptionalでTryGetValueすると必ず例外が発生してしまうバグを修正</PackageReleaseNotes>
     <PackageLicenseExpression> MIT</PackageLicenseExpression>
     <PackageIcon>CSStack.png</PackageIcon>
   </PropertyGroup>
