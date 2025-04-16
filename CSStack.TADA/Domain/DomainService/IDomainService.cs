@@ -11,7 +11,8 @@
         /// 実行
         /// </summary>
         /// <param name="req">リクエスト</param>
+        /// <param name="cancellationToken">キャンセルトークン</param>
         /// <returns>レスポンス</returns>
-        ValueTask<TRes> ExecuteAsync(TReq req);
+        ValueTask<TRes> ExecuteAsync(TReq req, CancellationToken cancellationToken);
     }
 }

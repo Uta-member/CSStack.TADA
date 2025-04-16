@@ -19,7 +19,11 @@
         /// </summary>
         /// <param name="session"></param>
         /// <param name="identifier"></param>
+        /// <param name="cancellationToken">キャンセルトークン</param>
         /// <returns></returns>
-        ValueTask<Optional<TEntity>> GetEntityByIdentifierAsync(TSession session, TEntityIdentifier identifier);
+        ValueTask<Optional<TEntity>> GetEntityByIdentifierAsync(
+            TSession session,
+            TEntityIdentifier identifier,
+            CancellationToken cancellationToken);
     }
 }

@@ -32,9 +32,10 @@
         /// <inheritdoc/>
         public async ValueTask<Optional<TEntity>> GetEntityByIdentifierAsync(
             TSession session,
-            TEntityIdentifier identifier)
+            TEntityIdentifier identifier,
+            CancellationToken cancellationToken)
         {
-            return await Repository.FindByIdentifierAsync(session, identifier);
+            return await Repository.FindByIdentifierAsync(session, identifier, cancellationToken);
         }
     }
 }
