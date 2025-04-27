@@ -22,7 +22,7 @@
         ValueTask<Optional<TEntity>> FindByIdentifierAsync(
             TSession session,
             TEntityIdentifier identifier,
-            CancellationToken cancellationToken);
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// エンティティを永続化する
@@ -35,6 +35,6 @@
             TSession session,
             TEntity entity,
             TOperateInfo operateInfo,
-            CancellationToken cancellationToken);
+            CancellationToken cancellationToken = default);
     }
 }

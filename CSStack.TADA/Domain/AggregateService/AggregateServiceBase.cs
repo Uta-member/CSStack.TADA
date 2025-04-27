@@ -30,12 +30,12 @@
         }
 
         /// <inheritdoc/>
-        public async ValueTask<Optional<TEntity>> GetEntityByIdentifierAsync(
+        public ValueTask<Optional<TEntity>> GetEntityByIdentifierAsync(
             TSession session,
             TEntityIdentifier identifier,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken = default)
         {
-            return await Repository.FindByIdentifierAsync(session, identifier, cancellationToken);
+            return Repository.FindByIdentifierAsync(session, identifier, cancellationToken);
         }
     }
 }

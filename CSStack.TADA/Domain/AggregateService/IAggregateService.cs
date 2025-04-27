@@ -24,6 +24,6 @@
         ValueTask<Optional<TEntity>> GetEntityByIdentifierAsync(
             TSession session,
             TEntityIdentifier identifier,
-            CancellationToken cancellationToken);
+            CancellationToken cancellationToken = default);
     }
 }
