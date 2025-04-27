@@ -28,31 +28,24 @@
         }
 
         /// <summary>
-        /// 値が設定されたかどうか
-        /// </summary>
-        public bool HasValue { get; }
-
-        /// <summary>
-        /// 値
-        /// </summary>
-        public TValue Value
-        {
-            get
-            {
-                if (!HasValue)
-                {
-                    throw new InvalidOperationException("Value is not set.");
-                }
-
-                return _value!;
-            }
-        }
-
-        /// <summary>
         /// TValueをそのまま受け取ってインスタンス化できるようにする
         /// </summary>
         /// <param name="value"></param>
-        public static implicit operator Optional<TValue>(TValue value) => new Optional<TValue>(value);
+        public static implicit operator Optional<TValue>(TValue value)
+        {
+            return new Optional<TValue>(value);
+        }
+
+
+        /// <summary>
+        /// 値が設定済みならその値を取得し、設定されていない場合はデフォルト値を取得する
+        /// </summary>
+        /// <param name="defaultValue">値が設定されていない場合に取得する値</param>
+        /// <returns></returns>
+        public TValue GetValue(TValue defaultValue)
+        {
+            return HasValue ? Value : defaultValue;
+        }
 
         /// <inheritdoc/>
         public override string ToString()
@@ -67,7 +60,7 @@
         /// <returns>値が取得可能かどうか</returns>
         public bool TryGetValue(out TValue value)
         {
-            if (HasValue)
+            if(HasValue)
             {
                 value = Value;
             }
@@ -76,6 +69,27 @@
                 value = default!;
             }
             return HasValue;
+        }
+
+        /// <summary>
+        /// 値が設定されたかどうか
+        /// </summary>
+        public bool HasValue { get; }
+
+        /// <summary>
+        /// 値
+        /// </summary>
+        public TValue Value
+        {
+            get
+            {
+                if(!HasValue)
+                {
+                    throw new InvalidOperationException("Value is not set.");
+                }
+
+                return _value!;
+            }
         }
     }
 }
