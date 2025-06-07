@@ -5,7 +5,7 @@ namespace CSStack.TADA
     /// <summary>
     /// 複数例外を同時に扱うための例外
     /// </summary>
-    public class MutiReasonException : Exception
+    public class MultiReasonException : Exception
     {
         /// <summary>
         /// コンストラクタ
@@ -13,10 +13,11 @@ namespace CSStack.TADA
         /// <param name="innerExceptions"></param>
         /// <param name="message"></param>
         /// <param name="innerException"></param>
-        public MutiReasonException(
+        public MultiReasonException(
             ImmutableList<Exception> innerExceptions,
             string? message = null,
-            Exception? innerException = null) : base(message, innerException)
+            Exception? innerException = null)
+            : base(message, innerException)
         {
             InnerExceptions = innerExceptions;
         }

@@ -11,6 +11,7 @@
         where TEntity : IEntity<TEntityIdentifier>
         where TSession : IDisposable
         where TEntityIdentifier : notnull
+        where TOperateInfo : notnull
     {
         /// <summary>
         /// 識別子からエンティティを取得する。

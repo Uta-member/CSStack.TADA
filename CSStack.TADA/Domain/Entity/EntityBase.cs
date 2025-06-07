@@ -10,48 +10,29 @@
         where TIdentifier : notnull
     {
         /// <inheritdoc/>
-        public abstract TIdentifier Identifier { get; }
-
-        /// <inheritdoc/>
-        public bool IsInvalidValue
-        {
-            get
-            {
-                try
-                {
-                    Validate();
-                    return false;
-                }
-                catch
-                {
-                    return true;
-                }
-            }
-        }
-
-        /// <inheritdoc/>
-        public static bool operator ==(EntityBase<TSelf, TIdentifier>? left, EntityBase<TSelf, TIdentifier>? right)
-        {
-            if (ReferenceEquals(left, null))
-            {
-                return ReferenceEquals(right, null);
-            }
-            return left.Equals(right);
-        }
-        /// <inheritdoc/>
         public static bool operator !=(EntityBase<TSelf, TIdentifier>? left, EntityBase<TSelf, TIdentifier>? right)
         {
             return !(left == right);
         }
 
         /// <inheritdoc/>
+        public static bool operator ==(EntityBase<TSelf, TIdentifier>? left, EntityBase<TSelf, TIdentifier>? right)
+        {
+            if(ReferenceEquals(left, null))
+            {
+                return ReferenceEquals(right, null);
+            }
+            return left.Equals(right);
+        }
+
+        /// <inheritdoc/>
         public override bool Equals(object? obj)
         {
-            if (obj is null)
+            if(obj is null)
             {
                 return false;
             }
-            if (!(obj is TSelf other))
+            if(!(obj is TSelf other))
             {
                 return false;
             }
@@ -76,5 +57,25 @@
 
         /// <inheritdoc/>
         public abstract void Validate();
+
+        /// <inheritdoc/>
+        public abstract TIdentifier Identifier { get; }
+
+        /// <inheritdoc/>
+        public bool IsInvalidValue
+        {
+            get
+            {
+                try
+                {
+                    Validate();
+                    return false;
+                }
+                catch
+                {
+                    return true;
+                }
+            }
+        }
     }
 }

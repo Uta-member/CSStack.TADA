@@ -19,19 +19,37 @@ namespace CSStack.TADA
             _serviceProvider = serviceProvider;
         }
 
-        /// <summary>
-        /// トランザクション因子
-        /// </summary>
-        public IReadOnlyDictionary<Type, dynamic> Sessions => _sessions;
+        private ITransactionService<TSession> GetTransactionService<TSession>()
+            where TSession : IDisposable
+        {
+            var service = _serviceProvider.GetService(typeof(ITransactionService<>).MakeGenericType(typeof(TSession)));
+            if(service == null)
+            {
+                throw new InvalidOperationException($"No service found for {typeof(TSession).Name}");
+            }
+            return (ITransactionService<TSession>)service;
+        }
+
+        private dynamic GetTransactionServiceBySessionType(Type sessionType)
+        {
+            var serviceType = typeof(ITransactionService<>).MakeGenericType(sessionType);
+            var service = _serviceProvider.GetService(serviceType);
+            if(service == null)
+            {
+                throw new InvalidOperationException($"No service found for {sessionType.Name}");
+            }
+            return service;
+        }
 
         /// <summary>
         /// トランザクションを開始する
         /// </summary>
         /// <typeparam name="TSession"></typeparam>
         /// <returns></returns>
-        public async ValueTask BeginTransactionAsync<TSession>() where TSession : IDisposable
+        public async ValueTask BeginTransactionAsync<TSession>()
+            where TSession : IDisposable
         {
-            if (_sessions.ContainsKey(typeof(TSession)))
+            if(_sessions.ContainsKey(typeof(TSession)))
             {
                 return;
             }
@@ -46,7 +64,7 @@ namespace CSStack.TADA
         /// <returns></returns>
         public async ValueTask BeginTransactionAsync(Type sessionType)
         {
-            if (_sessions.ContainsKey(sessionType))
+            if(_sessions.ContainsKey(sessionType))
             {
                 return;
             }
@@ -62,7 +80,7 @@ namespace CSStack.TADA
         /// <returns></returns>
         public async ValueTask BeginTransactionsAsync(ImmutableList<Type> sessionTypes)
         {
-            foreach (var sessionType in sessionTypes)
+            foreach(var sessionType in sessionTypes)
             {
                 await BeginTransactionAsync(sessionType);
             }
@@ -73,7 +91,7 @@ namespace CSStack.TADA
         /// </summary>
         public async ValueTask CommitAsync()
         {
-            foreach (var session in _sessions)
+            foreach(var session in _sessions)
             {
                 var transactionService = GetTransactionServiceBySessionType(session.Key);
                 await transactionService.CommitAsync(session.Value);
@@ -99,9 +117,9 @@ namespace CSStack.TADA
                 await transactionFunction.Invoke(new TransactionSessions(Sessions));
                 await CommitAsync();
             }
-            catch (Exception ex)
+            catch(Exception ex)
             {
-                if (beforeRollbackHandler != null)
+                if(beforeRollbackHandler != null)
                 {
                     await beforeRollbackHandler.Invoke(ex);
                 }
@@ -120,6 +138,7 @@ namespace CSStack.TADA
         /// <typeparam name="TSession"></typeparam>
         /// <returns></returns>
         public TSession GetSession<TSession>()
+            where TSession : IDisposable
         {
             return (TSession)_sessions[typeof(TSession)];
         }
@@ -139,7 +158,7 @@ namespace CSStack.TADA
         /// </summary>
         public async ValueTask RollbackAsync()
         {
-            foreach (var session in _sessions)
+            foreach(var session in _sessions)
             {
                 var transactionService = GetTransactionServiceBySessionType(session.Key);
                 await transactionService.RollbackAsync(session.Value);
@@ -147,25 +166,9 @@ namespace CSStack.TADA
             _sessions.Clear();
         }
 
-        private ITransactionService<TSession> GetTransactionService<TSession>() where TSession : IDisposable
-        {
-            var service = _serviceProvider.GetService(typeof(ITransactionService<>).MakeGenericType(typeof(TSession)));
-            if (service == null)
-            {
-                throw new InvalidOperationException($"No service found for {typeof(TSession).Name}");
-            }
-            return (ITransactionService<TSession>)service;
-        }
-
-        private dynamic GetTransactionServiceBySessionType(Type sessionType)
-        {
-            var serviceType = typeof(ITransactionService<>).MakeGenericType(sessionType);
-            var service = _serviceProvider.GetService(serviceType);
-            if (service == null)
-            {
-                throw new InvalidOperationException($"No service found for {sessionType.Name}");
-            }
-            return service;
-        }
+        /// <summary>
+        /// トランザクション因子
+        /// </summary>
+        public IReadOnlyDictionary<Type, dynamic> Sessions => _sessions;
     }
 }

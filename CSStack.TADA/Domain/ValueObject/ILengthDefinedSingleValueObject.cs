@@ -8,11 +8,11 @@
         /// <summary>
         /// 最大長
         /// </summary>
-        abstract static int MaxLength { get; }
+        static abstract int MaxLength { get; }
 
         /// <summary>
         /// 最小長
         /// </summary>
-        abstract static int MinLength { get; }
+        static abstract int MinLength { get; }
     }
 }

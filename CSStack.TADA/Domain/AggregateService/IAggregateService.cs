@@ -13,6 +13,7 @@
         where TRepository : IRepository<TEntity, TEntityIdentifier, TOperateInfo, TSession>
         where TEntityIdentifier : notnull
         where TSession : IDisposable
+        where TOperateInfo : notnull
     {
         /// <summary>
         /// エンティティを取得する

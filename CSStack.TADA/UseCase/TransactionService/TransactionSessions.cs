@@ -15,18 +15,19 @@
         }
 
         /// <summary>
-        /// セッション
-        /// </summary>
-        public IReadOnlyDictionary<Type, dynamic> Sessions { get; }
-
-        /// <summary>
         /// セッションを取得する
         /// </summary>
         /// <typeparam name="TSession"></typeparam>
         /// <returns></returns>
         public TSession GetSession<TSession>()
+            where TSession : IDisposable
         {
             return (TSession)Sessions[typeof(TSession)];
         }
+
+        /// <summary>
+        /// セッション
+        /// </summary>
+        public IReadOnlyDictionary<Type, dynamic> Sessions { get; }
     }
 }

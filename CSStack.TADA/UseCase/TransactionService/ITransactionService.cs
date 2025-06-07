@@ -4,7 +4,8 @@
     /// トランザクションサービス（非同期）のインターフェース
     /// </summary>
     /// <typeparam name="TSession">トランザクションを維持するための因子</typeparam>
-    public interface ITransactionService<TSession> where TSession : IDisposable
+    public interface ITransactionService<TSession>
+        where TSession : IDisposable
     {
         /// <summary>
         /// トランザクション開始(戻り値はusingの変数に入れてください)

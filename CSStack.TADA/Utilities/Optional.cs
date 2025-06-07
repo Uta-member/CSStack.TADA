@@ -72,6 +72,11 @@
         }
 
         /// <summary>
+        /// 値が設定されていない状態のOptionalインスタンスを取得する
+        /// </summary>
+        public static Optional<TValue> Empty => new Optional<TValue>();
+
+        /// <summary>
         /// 値が設定されたかどうか
         /// </summary>
         public bool HasValue { get; }

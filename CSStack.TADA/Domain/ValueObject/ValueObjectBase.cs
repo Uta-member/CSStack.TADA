@@ -6,6 +6,9 @@
     public abstract record ValueObjectBase : IValueObject
     {
         /// <inheritdoc/>
+        public abstract void Validate();
+
+        /// <inheritdoc/>
         public bool IsInvalidValue
         {
             get
@@ -21,8 +24,5 @@
                 }
             }
         }
-
-        /// <inheritdoc/>
-        public abstract void Validate();
     }
 }
