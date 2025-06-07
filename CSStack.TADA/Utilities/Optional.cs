@@ -47,6 +47,16 @@
             return HasValue ? Value : defaultValue;
         }
 
+        /// <summary>
+        /// 値が設定された状態のOptionalインスタンスを取得する
+        /// </summary>
+        /// <param name="value"></param>
+        /// <returns></returns>
+        public static Optional<TValue> Some(TValue value)
+        {
+            return new Optional<TValue>(value);
+        }
+
         /// <inheritdoc/>
         public override string ToString()
         {

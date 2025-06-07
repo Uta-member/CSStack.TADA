@@ -23,8 +23,17 @@ namespace CSStack.TADA
         }
 
         /// <summary>
+        /// 例外を追加する
+        /// </summary>
+        /// <param name="exception">追加する例外</param>
+        public void AddException(Exception exception)
+        {
+            InnerExceptions = InnerExceptions.Add(exception);
+        }
+
+        /// <summary>
         /// 同時発生した例外リスト
         /// </summary>
-        public ImmutableList<Exception> InnerExceptions { get; }
+        public ImmutableList<Exception> InnerExceptions { get; protected set; }
     }
 }
