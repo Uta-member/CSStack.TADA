@@ -3,40 +3,46 @@
 namespace CSStack.TADA
 {
 	/// <summary>
-	/// 入力値の検証を行うクラス
+	/// キーで管理されたバリデート処理を提供するヘルパークラス
 	/// </summary>
-	public class ValidateHelper
+	/// <typeparam name="TKey"></typeparam>
+	public class KeyedValidateHelper<TKey> where TKey : Enum
 	{
 		/// <summary>
 		/// バリデート処理リスト
 		/// </summary>
-		public ImmutableList<Action> ValidateActions { get; private set; } = ImmutableList<Action>.Empty;
+		public ImmutableDictionary<TKey, Action> ValidateActions
+		{
+			get;
+			private set;
+		} = ImmutableDictionary<TKey, Action>.Empty;
 
 		/// <summary>
 		/// バリデート処理を追加する
 		/// </summary>
+		/// <param name="key"></param>
 		/// <param name="action"></param>
-		public void Add(Action action)
+		public void Add(TKey key, Action action)
 		{
-			ValidateActions = ValidateActions.Add(action);
+			ValidateActions = ValidateActions.Add(key, action);
 		}
 
 		/// <summary>
 		/// バリデート処理を実行し、例外があればMultiReasonExceptionを返す
 		/// </summary>
 		/// <returns></returns>
-		public MultiReasonException? ExecuteValidate()
+		public KeyedMultiReasonException<TKey>? ExecuteValidate()
 		{
-			var exceptions = new MultiReasonException(ImmutableList<Exception>.Empty);
+			var exceptions = new KeyedMultiReasonException<TKey>(ImmutableDictionary<TKey, Exception>.Empty);
 			foreach (var action in ValidateActions)
 			{
 				try
 				{
-					action();
+					action.Value();
 				}
 				catch (Exception ex)
 				{
-					exceptions.AddException(ex);
+					exceptions.AddException(action.Key, ex);
 				}
 			}
 			if (!exceptions.Exceptions.Any())
@@ -51,16 +57,16 @@ namespace CSStack.TADA
 		/// </summary>
 		public void ExecuteValidateWithThrowException()
 		{
-			var exceptions = new MultiReasonException(ImmutableList<Exception>.Empty);
+			var exceptions = new KeyedMultiReasonException<TKey>(ImmutableDictionary<TKey, Exception>.Empty);
 			foreach (var action in ValidateActions)
 			{
 				try
 				{
-					action();
+					action.Value();
 				}
 				catch (Exception ex)
 				{
-					exceptions.AddException(ex);
+					exceptions.AddException(action.Key, ex);
 				}
 			}
 
