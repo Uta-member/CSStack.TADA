@@ -11,8 +11,9 @@
         /// Execute the query service method.
         /// </summary>
         /// <param name="req">Request</param>
+        /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>Response</returns>
-        ValueTask<TRes> ExecuteAsync(TReq req);
+        ValueTask<TRes> ExecuteAsync(TReq req, CancellationToken cancellationToken = default);
     }
 
     /// <summary>
