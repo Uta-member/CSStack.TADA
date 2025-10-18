@@ -1,13 +1,13 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// 集約サービスのインターフェース
+    /// Interface for aggregate services.
     /// </summary>
-    /// <typeparam name="TEntity">エンティティ</typeparam>
-    /// <typeparam name="TEntityIdentifier">エンティティの識別子となるオブジェクトの型</typeparam>
-    /// <typeparam name="TRepository">リポジトリ</typeparam>
-    /// <typeparam name="TOperateInfo">操作情報の型</typeparam>
-    /// <typeparam name="TSession">トランザクション因子の型</typeparam>
+    /// <typeparam name="TEntity">Entity</typeparam>
+    /// <typeparam name="TEntityIdentifier">Type of the entity identifier</typeparam>
+    /// <typeparam name="TRepository">Repository</typeparam>
+    /// <typeparam name="TOperateInfo">Type of operation info</typeparam>
+    /// <typeparam name="TSession">Transaction session type</typeparam>
     public interface IAggregateService<TEntity, TEntityIdentifier, TRepository, TOperateInfo, TSession>
         where TEntity : IEntity<TEntityIdentifier>
         where TRepository : IRepository<TEntity, TEntityIdentifier, TOperateInfo, TSession>
@@ -16,12 +16,12 @@
         where TOperateInfo : notnull
     {
         /// <summary>
-        /// エンティティを取得する
+        /// Get the entity.
         /// </summary>
-        /// <param name="session"></param>
-        /// <param name="identifier"></param>
-        /// <param name="cancellationToken">キャンセルトークン</param>
-        /// <returns></returns>
+        /// <param name="session">Transaction session</param>
+        /// <param name="identifier">Identifier</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        /// <returns>Optional entity</returns>
         ValueTask<Optional<TEntity>> GetEntityByIdentifierAsync(
             TSession session,
             TEntityIdentifier identifier,

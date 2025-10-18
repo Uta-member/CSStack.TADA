@@ -1,15 +1,15 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// オブジェクトが存在していない例外
+    /// Exception thrown when the object does not exist.
     /// </summary>
     public class ObjectNotFoundException : TADAException
     {
         /// <summary>
-        /// コンストラクタ
+        /// Constructor
         /// </summary>
-        /// <param name="message">メッセージ</param>
-        /// <param name="innserException">内部例外</param>
+        /// <param name="message">Message</param>
+        /// <param name="innserException">Inner exception</param>
         public ObjectNotFoundException(string? message = null, Exception? innserException = null)
             : base(message, innserException)
         {

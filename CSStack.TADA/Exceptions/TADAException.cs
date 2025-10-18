@@ -1,15 +1,15 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// TADAの例外クラス
+    /// Base exception class for TADA.
     /// </summary>
     public class TADAException : Exception
     {
         /// <summary>
-        /// コンストラクタ
+        /// Constructor
         /// </summary>
-        /// <param name="message">メッセージ</param>
-        /// <param name="innserException">内部例外</param>
+        /// <param name="message">Message</param>
+        /// <param name="innserException">Inner exception</param>
         public TADAException(string? message = null, Exception? innserException = null)
             : base(message, innserException)
         {

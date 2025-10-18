@@ -1,18 +1,18 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// 値オブジェクトの長さに関する例外
+    /// Exception related to the length of a value object.
     /// </summary>
     public class ValueObjectLengthException : ValueObjectInvalidException
     {
         /// <summary>
-        /// コンストラクタ
+        /// Constructor
         /// </summary>
-        /// <param name="minLength">最小長</param>
-        /// <param name="maxLength">最大長</param>
-        /// <param name="currentLength">現在値</param>
-        /// <param name="message">メッセージ</param>
-        /// <param name="innserException">内部例外</param>
+        /// <param name="minLength">Minimum length</param>
+        /// <param name="maxLength">Maximum length</param>
+        /// <param name="currentLength">Current length</param>
+        /// <param name="message">Message</param>
+        /// <param name="innserException">Inner exception</param>
         public ValueObjectLengthException(
             int minLength,
             int maxLength,
@@ -27,17 +27,17 @@
         }
 
         /// <summary>
-        /// 現在値
+        /// Current length
         /// </summary>
         public int CurrentLength { get; }
 
         /// <summary>
-        /// 最大長
+        /// Maximum length
         /// </summary>
         public int MaxLength { get; }
 
         /// <summary>
-        /// 最小長
+        /// Minimum length
         /// </summary>
         public int MinLength { get; }
     }

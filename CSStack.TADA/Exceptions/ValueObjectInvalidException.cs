@@ -1,15 +1,15 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// 値オブジェクトの不正値例外クラス
+    /// Exception class for invalid value objects.
     /// </summary>
     public class ValueObjectInvalidException : TADAException
     {
         /// <summary>
-        /// コンストラクタ
+        /// Constructor
         /// </summary>
-        /// <param name="message">メッセージ</param>
-        /// <param name="innserException">内部例外</param>
+        /// <param name="message">Message</param>
+        /// <param name="innserException">Inner exception</param>
         public ValueObjectInvalidException(string? message = null, Exception? innserException = null)
             : base(message, innserException)
         {

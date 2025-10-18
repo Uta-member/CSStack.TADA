@@ -1,12 +1,12 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// トランザクションセッション
+    /// Transaction sessions.
     /// </summary>
     public sealed class TransactionSessions
     {
         /// <summary>
-        /// コンストラクタ
+        /// Constructor
         /// </summary>
         /// <param name="sessions"></param>
         public TransactionSessions(IReadOnlyDictionary<Type, dynamic> sessions)
@@ -15,9 +15,9 @@
         }
 
         /// <summary>
-        /// セッションを取得する
+        /// Get a session.
         /// </summary>
-        /// <typeparam name="TSession"></typeparam>
+        /// <typeparam name="TSession">Session type</typeparam>
         /// <returns></returns>
         public TSession GetSession<TSession>()
             where TSession : IDisposable
@@ -26,7 +26,7 @@
         }
 
         /// <summary>
-        /// セッション
+        /// Sessions.
         /// </summary>
         public IReadOnlyDictionary<Type, dynamic> Sessions { get; }
     }

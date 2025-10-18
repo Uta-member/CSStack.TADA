@@ -1,9 +1,7 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// ドメインサービスのメソッドで使用するDTOのインターフェース
+    /// DTO interface used by domain service methods.
     /// </summary>
-    public interface IDomainServiceDTO
-    {
-    }
+    public interface IDomainServiceDTO;
 }

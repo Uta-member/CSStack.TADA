@@ -1,26 +1,29 @@
-﻿namespace CSStack.TADA
+﻿using System.Diagnostics.CodeAnalysis;
+
+namespace CSStack.TADA
 {
     /// <summary>
-    /// 値が設定されたかどうかを管理するクラス
+    /// Three-state struct that manages whether a value is set: None/Some(null)/Some(value). For reference types of
+    /// <typeparamref name="TValue"/>, null can be stored (HasValue=true and Value=null).
     /// </summary>
-    /// <typeparam name="TValue"></typeparam>
-    public class Optional<TValue>
+    /// <typeparam name="TValue">Value type</typeparam>
+    public readonly struct Optional<TValue>
     {
         private readonly TValue? _value;
 
         /// <summary>
-        /// コンストラクタ（値未設定状態で生成する）
+        /// Constructor that creates an instance in the "not set" (None) state.
         /// </summary>
         public Optional()
         {
             HasValue = false;
-            _value = default!;
+            _value = default;
         }
 
         /// <summary>
-        /// コンストラクタ（値設定状態で生成する）
+        /// Constructor that creates an instance with a value set (Some).
         /// </summary>
-        /// <param name="value"></param>
+        /// <param name="value">Value to store (null allowed for reference types)</param>
         public Optional(TValue value)
         {
             HasValue = true;
@@ -28,29 +31,28 @@
         }
 
         /// <summary>
-        /// TValueをそのまま受け取ってインスタンス化できるようにする
+        /// Allows implicit construction from <typeparamref name="TValue"/> (null is accepted as Some(null)).
         /// </summary>
-        /// <param name="value"></param>
+        /// <param name="value">Value</param>
         public static implicit operator Optional<TValue>(TValue value)
         {
             return new Optional<TValue>(value);
         }
 
-
         /// <summary>
-        /// 値が設定済みならその値を取得し、設定されていない場合はデフォルト値を取得する
+        /// Returns the stored value when set; otherwise returns the specified default value.
         /// </summary>
-        /// <param name="defaultValue">値が設定されていない場合に取得する値</param>
+        /// <param name="defaultValue">Value to return when no value is set</param>
         /// <returns></returns>
         public TValue GetValue(TValue defaultValue)
         {
-            return HasValue ? Value : defaultValue;
+            return TryGetValue(out var value) ? value : defaultValue;
         }
 
         /// <summary>
-        /// 値が設定された状態のOptionalインスタンスを取得する
+        /// Creates an Optional instance in the Some state.
         /// </summary>
-        /// <param name="value"></param>
+        /// <param name="value">Value</param>
         /// <returns></returns>
         public static Optional<TValue> Some(TValue value)
         {
@@ -60,47 +62,51 @@
         /// <inheritdoc/>
         public override string ToString()
         {
-            return HasValue ? $"Some({Value})" : "None";
+            if(!HasValue)
+            {
+                return "None";
+            }
+
+            return $"Some({(_value is null ? "null" : _value)})";
         }
 
         /// <summary>
-        /// 値が設定済みなら取得する
+        /// Gets the value if it is set.
         /// </summary>
-        /// <param name="value">値</param>
-        /// <returns>値が取得可能かどうか</returns>
-        public bool TryGetValue(out TValue value)
+        /// <param name="value">Value</param>
+        /// <returns>Whether the value was available</returns>
+        public bool TryGetValue([MaybeNullWhen(false)] out TValue value)
         {
             if(HasValue)
             {
-                value = Value;
+                value = _value!;
+                return true;
             }
-            else
-            {
-                value = default!;
-            }
-            return HasValue;
+
+            value = default!;
+            return false;
         }
 
         /// <summary>
-        /// 値が設定されていない状態のOptionalインスタンスを取得する
+        /// Gets an Optional instance in the None state.
         /// </summary>
-        public static Optional<TValue> Empty => new Optional<TValue>();
+        public static Optional<TValue> Empty => default;
 
         /// <summary>
-        /// 値が設定されたかどうか
+        /// Indicates whether a value is set.
         /// </summary>
         public bool HasValue { get; }
 
         /// <summary>
-        /// 値
+        /// Value.
         /// </summary>
-        public TValue Value
+        public TValue? Value
         {
             get
             {
                 if(!HasValue)
                 {
-                    throw new InvalidOperationException("Value is not set.");
+                    return default;
                 }
 
                 return _value!;

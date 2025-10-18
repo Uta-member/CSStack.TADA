@@ -3,12 +3,12 @@
 namespace CSStack.TADA
 {
     /// <summary>
-    /// トランザクション管理インターフェース
+    /// Transaction management interface.
     /// </summary>
     public interface ITransactionManager
     {
         /// <summary>
-        /// トランザクション実行
+        /// Execute a transaction.
         /// </summary>
         /// <param name="sessionTypes"></param>
         /// <param name="transactionFunction"></param>

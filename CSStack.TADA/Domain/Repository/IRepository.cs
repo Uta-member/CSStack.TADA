@@ -1,12 +1,12 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// リポジトリのインターフェース
+    /// Repository interface.
     /// </summary>
-    /// <typeparam name="TEntity">エンティティの型</typeparam>
-    /// <typeparam name="TEntityIdentifier">エンティティの識別子となるオブジェクトの型</typeparam>
-    /// <typeparam name="TOperateInfo">操作情報の型</typeparam>
-    /// <typeparam name="TSession">トランザクションの因子の型</typeparam>
+    /// <typeparam name="TEntity">Entity type</typeparam>
+    /// <typeparam name="TEntityIdentifier">Entity identifier type</typeparam>
+    /// <typeparam name="TOperateInfo">Operate info type</typeparam>
+    /// <typeparam name="TSession">Transaction factor type</typeparam>
     public interface IRepository<TEntity, TEntityIdentifier, TOperateInfo, TSession>
         where TEntity : IEntity<TEntityIdentifier>
         where TSession : IDisposable
@@ -14,24 +14,24 @@
         where TOperateInfo : notnull
     {
         /// <summary>
-        /// 識別子からエンティティを取得する。
+        /// Get an entity by identifier.
         /// </summary>
-        /// <param name="session">トランザクションの因子</param>
-        /// <param name="identifier">エンティティの識別子</param>
-        /// <param name="cancellationToken">キャンセルトークン</param>
-        /// <returns>エンティティ</returns>
+        /// <param name="session">Transaction factor</param>
+        /// <param name="identifier">Entity identifier</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        /// <returns>Entity</returns>
         ValueTask<Optional<TEntity>> FindByIdentifierAsync(
             TSession session,
             TEntityIdentifier identifier,
             CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// エンティティを永続化する
+        /// Persist the entity.
         /// </summary>
-        /// <param name="session">トランザクションの因子</param>
-        /// <param name="entity">エンティティ</param>
-        /// <param name="operateInfo">操作情報</param>
-        /// <param name="cancellationToken">キャンセルトークン</param>
+        /// <param name="session">Transaction factor</param>
+        /// <param name="entity">Entity</param>
+        /// <param name="operateInfo">Operate info</param>
+        /// <param name="cancellationToken">Cancellation token</param>
         ValueTask SaveAsync(
             TSession session,
             TEntity entity,

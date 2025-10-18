@@ -1,29 +1,29 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// トランザクションサービス（非同期）のインターフェース
+    /// Transaction service (async) interface.
     /// </summary>
-    /// <typeparam name="TSession">トランザクションを維持するための因子</typeparam>
+    /// <typeparam name="TSession">A factor to keep the transaction</typeparam>
     public interface ITransactionService<TSession>
         where TSession : IDisposable
     {
         /// <summary>
-        /// トランザクション開始(戻り値はusingの変数に入れてください)
+        /// Begin a transaction (store the return value in a using variable).
         /// </summary>
-        /// <returns>トランザクションを維持するための因子</returns>
+        /// <returns>The factor to keep the transaction</returns>
         ValueTask<TSession> BeginAsync();
 
         /// <summary>
-        /// コミット
+        /// Commit.
         /// </summary>
-        /// <param name="session">トランザクションを維持するための因子</param>
+        /// <param name="session">The factor to keep the transaction</param>
         /// <returns></returns>
         ValueTask CommitAsync(TSession session);
 
         /// <summary>
-        /// ロールバック
+        /// Rollback.
         /// </summary>
-        /// <param name="session">トランザクションを維持するための因子</param>
+        /// <param name="session">The factor to keep the transaction</param>
         /// <returns></returns>
         ValueTask RollbackAsync(TSession session);
     }

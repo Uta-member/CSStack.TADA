@@ -3,12 +3,12 @@
 namespace CSStack.TADA
 {
     /// <summary>
-    /// 入力値の検証を行うクラス
+    /// Helper class for input validation.
     /// </summary>
     public class ValidateHelper
     {
         /// <summary>
-        /// バリデート処理を追加する
+        /// Add a validation action.
         /// </summary>
         /// <param name="action"></param>
         public void Add(Action action)
@@ -17,7 +17,7 @@ namespace CSStack.TADA
         }
 
         /// <summary>
-        /// 値がnullでないことをチェックするバリデート処理を追加する
+        /// Add a validation that checks the value is not null.
         /// </summary>
         /// <param name="value"></param>
         /// <param name="message"></param>
@@ -35,7 +35,7 @@ namespace CSStack.TADA
         }
 
         /// <summary>
-        /// バリデート処理を複数追加する
+        /// Add multiple validation actions.
         /// </summary>
         /// <param name="actions"></param>
         public void AddRange(IEnumerable<Action> actions)
@@ -44,7 +44,7 @@ namespace CSStack.TADA
         }
 
         /// <summary>
-        /// 文字列の長さが指定範囲内であることをチェックするバリデート処理を追加する
+        /// Add a validation that checks the string length is within the specified range.
         /// </summary>
         /// <param name="value"></param>
         /// <param name="minLength"></param>
@@ -62,13 +62,14 @@ namespace CSStack.TADA
                             minLength,
                             maxLength,
                             value.Length,
-                            message ?? $"文字列の長さが不正です。({minLength}～{maxLength}文字)");
+                            message ??
+                                $"The length of the string is invalid. (Expected {minLength}–{maxLength} characters)");
                     }
                 });
         }
 
         /// <summary>
-        /// バリデート処理を実行し、例外があればMultiReasonExceptionを返す
+        /// Execute validations and return MultiReasonException when any exception occurred.
         /// </summary>
         /// <returns></returns>
         public MultiReasonException? ExecuteValidate()
@@ -93,7 +94,7 @@ namespace CSStack.TADA
         }
 
         /// <summary>
-        /// バリデート処理を実行し、例外が1つでもあればMultiReasonExceptionを投げる
+        /// Execute validations and throw MultiReasonException when any exception occurred.
         /// </summary>
         public void ExecuteValidateWithThrowException()
         {
@@ -117,7 +118,7 @@ namespace CSStack.TADA
         }
 
         /// <summary>
-        /// バリデート処理リスト
+        /// Validation action list.
         /// </summary>
         public ImmutableList<Action> ValidateActions { get; private set; } = ImmutableList<Action>.Empty;
     }

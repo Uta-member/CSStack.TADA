@@ -1,24 +1,24 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// エンティティのインターフェース
+    /// Entity interface.
     /// </summary>
-    /// <typeparam name="TIdentifier">エンティティの識別子となるオブジェクトの型</typeparam>
+    /// <typeparam name="TIdentifier">Entity identifier type</typeparam>
     public interface IEntity<TIdentifier>
         where TIdentifier : notnull
     {
         /// <summary>
-        /// バリデーション
+        /// Validate.
         /// </summary>
         void Validate();
 
         /// <summary>
-        /// Entityの識別子
+        /// Entity identifier.
         /// </summary>
         TIdentifier Identifier { get; }
 
         /// <summary>
-        /// 不正値が入っているかどうか
+        /// Indicates whether there is an invalid value.
         /// </summary>
         bool IsInvalidValue { get; }
     }

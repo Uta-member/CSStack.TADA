@@ -1,13 +1,13 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// 集約サービスの基底クラス
+    /// Base class for aggregate services.
     /// </summary>
-    /// <typeparam name="TEntity">エンティティ</typeparam>
-    /// <typeparam name="TEntityIdentifier">エンティティの識別子となるオブジェクトの型</typeparam>
-    /// <typeparam name="TRepository">リポジトリ</typeparam>
-    /// <typeparam name="TOperateInfo">操作情報の型</typeparam>
-    /// <typeparam name="TSession">トランザクション因子の型</typeparam>
+    /// <typeparam name="TEntity">Entity type</typeparam>
+    /// <typeparam name="TEntityIdentifier">Entity identifier type</typeparam>
+    /// <typeparam name="TRepository">Repository type</typeparam>
+    /// <typeparam name="TOperateInfo">Operate info type</typeparam>
+    /// <typeparam name="TSession">Transaction session type</typeparam>
     public class AggregateServiceBase<TEntity, TEntityIdentifier, TRepository, TOperateInfo, TSession>
         : IAggregateService<TEntity, TEntityIdentifier, TRepository, TOperateInfo, TSession>
         where TEntity : IEntity<TEntityIdentifier>
@@ -17,12 +17,12 @@
         where TOperateInfo : notnull
     {
         /// <summary>
-        /// リポジトリ
+        /// Repository
         /// </summary>
         protected readonly TRepository Repository;
 
         /// <summary>
-        /// コンストラクタ
+        /// Constructor
         /// </summary>
         /// <param name="repository"></param>
         public AggregateServiceBase(TRepository repository)

@@ -1,15 +1,15 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// 値オブジェクトに値が入っていない例外
+    /// Exception thrown when a value object has no value.
     /// </summary>
     public class ValueObjectNullException : ValueObjectInvalidException
     {
         /// <summary>
-        /// コンストラクタ
+        /// Constructor
         /// </summary>
-        /// <param name="message">メッセージ</param>
-        /// <param name="innserException">内部例外</param>
+        /// <param name="message">Message</param>
+        /// <param name="innserException">Inner exception</param>
         public ValueObjectNullException(string? message = null, Exception? innserException = null)
             : base(message, innserException)
         {

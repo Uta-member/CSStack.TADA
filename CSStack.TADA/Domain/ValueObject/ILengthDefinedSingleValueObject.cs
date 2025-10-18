@@ -1,17 +1,17 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// 値の長さが決まっている単一値オブジェクトのインターフェース
+    /// Interface for single value objects with predefined length constraints.
     /// </summary>
     public interface ILengthDefinedSingleValueObject
     {
         /// <summary>
-        /// 最大長
+        /// Maximum length.
         /// </summary>
         static abstract int MaxLength { get; }
 
         /// <summary>
-        /// 最小長
+        /// Minimum length.
         /// </summary>
         static abstract int MinLength { get; }
     }

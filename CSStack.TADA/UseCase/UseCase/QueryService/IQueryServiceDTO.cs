@@ -1,9 +1,7 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// クエリサービスのメソッドで使用するDTOのインターフェース
+    /// DTO interface used by query service methods.
     /// </summary>
-    public interface IQueryServiceDTO
-    {
-    }
+    public interface IQueryServiceDTO;
 }

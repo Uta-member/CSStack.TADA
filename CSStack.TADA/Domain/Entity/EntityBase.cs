@@ -1,10 +1,10 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// エンティティの基底クラス
+    /// Base class for entities.
     /// </summary>
-    /// <typeparam name="TSelf">エンティティの型</typeparam>
-    /// <typeparam name="TIdentifier">エンティティの識別子となるオブジェクトの型</typeparam>
+    /// <typeparam name="TSelf">Entity type</typeparam>
+    /// <typeparam name="TIdentifier">Entity identifier type</typeparam>
     public abstract class EntityBase<TSelf, TIdentifier> : IEntity<TIdentifier>, IEquatable<TSelf>
         where TSelf : EntityBase<TSelf, TIdentifier>
         where TIdentifier : notnull
@@ -40,9 +40,9 @@
         }
 
         /// <summary>
-        /// 等価性の評価。基本的にはIDなどの識別子だけで評価する。
+        /// Equality comparison. Basically evaluate only by identifier such as ID.
         /// </summary>
-        /// <param name="other">比較対象のエンティティ</param>
+        /// <param name="other">Entity to compare</param>
         /// <returns></returns>
         public bool Equals(TSelf? other)
         {

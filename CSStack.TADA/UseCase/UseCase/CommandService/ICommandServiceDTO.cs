@@ -1,9 +1,7 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// ユースケースコマンドのメソッドで使用するDTOのインターフェース
+    /// DTO interface used by use case command methods.
     /// </summary>
-    public interface ICommandServiceDTO
-    {
-    }
+    public interface ICommandServiceDTO;
 }

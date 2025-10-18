@@ -1,15 +1,15 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// すでにオブジェクトが存在している例外
+    /// Exception thrown when the object already exists.
     /// </summary>
     public class ObjectAlreadyExistException : TADAException
     {
         /// <summary>
-        /// コンストラクタ
+        /// Constructor
         /// </summary>
-        /// <param name="message">メッセージ</param>
-        /// <param name="innserException">内部例外</param>
+        /// <param name="message">Message</param>
+        /// <param name="innserException">Inner exception</param>
         public ObjectAlreadyExistException(string? message = null, Exception? innserException = null)
             : base(message, innserException)
         {

@@ -1,17 +1,17 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// 値オブジェクトのインターフェース
+    /// Interface for value objects.
     /// </summary>
     public interface IValueObject
     {
         /// <summary>
-        /// 不正値チェック。不正値の場合は例外を投げる。
+        /// Validate the value. Throws an exception when the value is invalid.
         /// </summary>
         void Validate();
 
         /// <summary>
-        /// 不正値かどうか。
+        /// Indicates whether the value is invalid.
         /// </summary>
         bool IsInvalidValue { get; }
     }

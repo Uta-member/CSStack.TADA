@@ -1,29 +1,29 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// 単一値しか持たない値オブジェクトインターフェース。
+    /// Interface for value objects that hold a single value.
     /// </summary>
-    /// <typeparam name="TValue">値の型</typeparam>
-    /// <typeparam name="TSelf">値オブジェクトの型</typeparam>
+    /// <typeparam name="TValue">Value type</typeparam>
+    /// <typeparam name="TSelf">Value object type</typeparam>
     public interface ISingleValueObject<TValue, TSelf> : IValueObject
         where TSelf : ISingleValueObject<TValue, TSelf>
     {
         /// <summary>
-        /// 新しく生成する
+        /// Create a new instance.
         /// </summary>
-        /// <param name="value"></param>
+        /// <param name="value">Value</param>
         /// <returns></returns>
         static abstract TSelf Create(TValue value);
 
         /// <summary>
-        /// リポジトリから復元する
+        /// Reconstruct from a repository.
         /// </summary>
-        /// <param name="value"></param>
+        /// <param name="value">Value</param>
         /// <returns></returns>
         static abstract TSelf Reconstruct(TValue value);
 
         /// <summary>
-        /// 値の本体
+        /// Underlying value.
         /// </summary>
         TValue Value { get; }
     }

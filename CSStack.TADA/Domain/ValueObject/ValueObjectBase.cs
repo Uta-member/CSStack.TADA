@@ -1,7 +1,7 @@
 ﻿namespace CSStack.TADA
 {
     /// <summary>
-    /// 値オブジェクトの基底クラス
+    /// Base class for value objects.
     /// </summary>
     public abstract record ValueObjectBase : IValueObject
     {

@@ -3,15 +3,15 @@
 namespace CSStack.TADA
 {
     /// <summary>
-    /// トランザクション管理クラス
+    /// Transaction manager class.
     /// </summary>
-    public sealed class TransactionManager : ITransactionManager
+    public class TransactionManager : ITransactionManager
     {
         private readonly IServiceProvider _serviceProvider;
         private readonly Dictionary<Type, dynamic> _sessions = new();
 
         /// <summary>
-        /// コンストラクタ
+        /// Constructor
         /// </summary>
         /// <param name="serviceProvider"></param>
         public TransactionManager(IServiceProvider serviceProvider)
@@ -42,7 +42,7 @@ namespace CSStack.TADA
         }
 
         /// <summary>
-        /// トランザクションを開始する
+        /// Begin a transaction.
         /// </summary>
         /// <typeparam name="TSession"></typeparam>
         /// <returns></returns>
@@ -59,7 +59,7 @@ namespace CSStack.TADA
         }
 
         /// <summary>
-        /// トランザクションを開始する
+        /// Begin a transaction.
         /// </summary>
         /// <returns></returns>
         public async ValueTask BeginTransactionAsync(Type sessionType)
@@ -74,7 +74,7 @@ namespace CSStack.TADA
         }
 
         /// <summary>
-        /// 複数のトランザクションを開始する
+        /// Begin multiple transactions.
         /// </summary>
         /// <param name="sessionTypes"></param>
         /// <returns></returns>
@@ -87,7 +87,7 @@ namespace CSStack.TADA
         }
 
         /// <summary>
-        /// トランザクションをコミットする
+        /// Commit transactions.
         /// </summary>
         public async ValueTask CommitAsync()
         {
@@ -100,7 +100,7 @@ namespace CSStack.TADA
         }
 
         /// <summary>
-        /// トランザクション実行
+        /// Execute a transaction.
         /// </summary>
         /// <param name="sessionTypes"></param>
         /// <param name="transactionFunction"></param>
@@ -133,7 +133,7 @@ namespace CSStack.TADA
         }
 
         /// <summary>
-        /// トランザクション因子取得
+        /// Get transaction session factor.
         /// </summary>
         /// <typeparam name="TSession"></typeparam>
         /// <returns></returns>
@@ -144,7 +144,7 @@ namespace CSStack.TADA
         }
 
         /// <summary>
-        /// トランザクション因子取得
+        /// Get transaction session factor.
         /// </summary>
         /// <param name="sessionType"></param>
         /// <returns></returns>
@@ -154,7 +154,7 @@ namespace CSStack.TADA
         }
 
         /// <summary>
-        /// トランザクションをロールバックする
+        /// Rollback transactions.
         /// </summary>
         public async ValueTask RollbackAsync()
         {
@@ -167,7 +167,7 @@ namespace CSStack.TADA
         }
 
         /// <summary>
-        /// トランザクション因子
+        /// Transaction sessions.
         /// </summary>
         public IReadOnlyDictionary<Type, dynamic> Sessions => _sessions;
     }
