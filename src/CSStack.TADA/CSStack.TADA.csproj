@@ -6,14 +6,14 @@
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <Title>Transaction-Aware Domain Architecture Toolkit</Title>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <Authors>Uta Sugane</Authors>
     <Description>A library of interfaces and classes useful for implementing Transaction-Aware Domain Architecture (TADA).</Description>
     <SignAssembly>False</SignAssembly>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/Uta-member/CSStack.TADA</RepositoryUrl>
     <PackageTags>TADA;DDD;CSStack;</PackageTags>
-    <PackageReleaseNotes>正式リリース</PackageReleaseNotes>
+    <PackageReleaseNotes>Optionalのコンストラクタをシリアライズに対応</PackageReleaseNotes>
     <PackageLicenseExpression> MIT</PackageLicenseExpression>
     <PackageIcon>CSStack.png</PackageIcon>
   </PropertyGroup>

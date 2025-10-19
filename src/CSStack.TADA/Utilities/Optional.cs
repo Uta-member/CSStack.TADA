@@ -31,6 +31,21 @@ namespace CSStack.TADA
         }
 
         /// <summary>
+        /// Constructor that creates an instance with an explicit <see cref="HasValue"/> state. If <paramref
+        /// name="hasValue"/> is true, the provided <paramref name="value"/> (which may be null for reference types) is
+        /// stored and the instance represents Some(value). If false, the instance represents None and the stored value
+        /// is ignored by accessors (for example, <see cref="Value"/> returns default and <see cref="TryGetValue(out
+        /// TValue)"/> returns false).
+        /// </summary>
+        /// <param name="value">Value to associate with the instance (nullable for reference types)</param>
+        /// <param name="hasValue">Whether the instance should represent a set value (Some) or not set (None)</param>
+        public Optional(TValue? value, bool hasValue)
+        {
+            HasValue = hasValue;
+            _value = value;
+        }
+
+        /// <summary>
         /// Allows implicit construction from <typeparamref name="TValue"/> (null is accepted as Some(null)).
         /// </summary>
         /// <param name="value">Value</param>
