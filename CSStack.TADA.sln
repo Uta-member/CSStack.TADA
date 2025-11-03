@@ -11,6 +11,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docs", "docs", "{DDB4EF12-C
 		docs\USAGE.ja.md = docs\USAGE.ja.md
 	EndProjectSection
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CSStack.TADA.Tests", "tests\CSStack.TADA.Tests\CSStack.TADA.Tests.csproj", "{2A7DDE47-44B2-45B4-A208-5537F353EF25}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{A20B0E40-F0EF-4B87-9187-4AB9234F02D4}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A20B0E40-F0EF-4B87-9187-4AB9234F02D4}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A20B0E40-F0EF-4B87-9187-4AB9234F02D4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2A7DDE47-44B2-45B4-A208-5537F353EF25}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2A7DDE47-44B2-45B4-A208-5537F353EF25}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2A7DDE47-44B2-45B4-A208-5537F353EF25}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2A7DDE47-44B2-45B4-A208-5537F353EF25}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

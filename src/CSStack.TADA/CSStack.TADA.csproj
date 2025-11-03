@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <Title>Transaction-Aware Domain Architecture Toolkit</Title>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <Authors>Uta Sugane</Authors>
     <Description>A library of interfaces and classes useful for implementing Transaction-Aware Domain Architecture (TADA).</Description>
     <SignAssembly>False</SignAssembly>

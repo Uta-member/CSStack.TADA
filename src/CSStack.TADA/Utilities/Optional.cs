@@ -7,7 +7,7 @@ namespace CSStack.TADA
     /// <typeparamref name="TValue"/>, null can be stored (HasValue=true and Value=null).
     /// </summary>
     /// <typeparam name="TValue">Value type</typeparam>
-    public readonly struct Optional<TValue>
+    public struct Optional<TValue>
     {
         private readonly TValue? _value;
 
@@ -90,7 +90,7 @@ namespace CSStack.TADA
         /// </summary>
         /// <param name="value">Value</param>
         /// <returns>Whether the value was available</returns>
-        public bool TryGetValue([MaybeNullWhen(false)] out TValue value)
+        public bool TryGetValue(out TValue value)
         {
             if(HasValue)
             {
@@ -110,7 +110,7 @@ namespace CSStack.TADA
         /// <summary>
         /// Indicates whether a value is set.
         /// </summary>
-        public bool HasValue { get; }
+        public bool HasValue { get; init; }
 
         /// <summary>
         /// Value.
@@ -125,6 +125,10 @@ namespace CSStack.TADA
                 }
 
                 return _value!;
+            }
+            init
+            {
+                _value = value;
             }
         }
     }
