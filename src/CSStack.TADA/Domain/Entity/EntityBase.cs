@@ -32,9 +32,9 @@
         /// <inheritdoc/>
         public static bool operator ==(EntityBase<TSelf, TIdentifier>? left, TSelf? right)
         {
-            if (ReferenceEquals(left, null))
+            if (left is null)
             {
-                return ReferenceEquals(right, null);
+                return right is null;
             }
 
             return left.Equals(right);
@@ -52,7 +52,7 @@
             {
                 return false;
             }
-            if (!(obj is TSelf other))
+            if (obj is not TSelf other)
             {
                 return false;
             }

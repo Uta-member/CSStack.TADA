@@ -3,42 +3,35 @@
     /// <summary>
     /// Exception related to the length of a value object.
     /// </summary>
-    public class ValueObjectLengthException : ValueObjectInvalidException
+    /// <remarks>
+    /// Constructor
+    /// </remarks>
+    /// <param name="minLength">Minimum length</param>
+    /// <param name="maxLength">Maximum length</param>
+    /// <param name="currentLength">Current length</param>
+    /// <param name="message">Message</param>
+    /// <param name="innserException">Inner exception</param>
+    public class ValueObjectLengthException(
+        int minLength,
+        int maxLength,
+        int currentLength,
+        string? message = null,
+        Exception? innserException = null)
+        : ValueObjectInvalidException(message, innserException)
     {
-        /// <summary>
-        /// Constructor
-        /// </summary>
-        /// <param name="minLength">Minimum length</param>
-        /// <param name="maxLength">Maximum length</param>
-        /// <param name="currentLength">Current length</param>
-        /// <param name="message">Message</param>
-        /// <param name="innserException">Inner exception</param>
-        public ValueObjectLengthException(
-            int minLength,
-            int maxLength,
-            int currentLength,
-            string? message = null,
-            Exception? innserException = null)
-            : base(message, innserException)
-        {
-            MinLength = minLength;
-            MaxLength = maxLength;
-            CurrentLength = currentLength;
-        }
-
         /// <summary>
         /// Current length
         /// </summary>
-        public int CurrentLength { get; }
+        public int CurrentLength { get; } = currentLength;
 
         /// <summary>
         /// Maximum length
         /// </summary>
-        public int MaxLength { get; }
+        public int MaxLength { get; } = maxLength;
 
         /// <summary>
         /// Minimum length
         /// </summary>
-        public int MinLength { get; }
+        public int MinLength { get; } = minLength;
     }
 }
