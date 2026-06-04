@@ -25,12 +25,6 @@ Transaction-Aware Domain Architecture Toolkit (TADA) – A library of C# classes
 
 ---
 
-For a comprehensive usage guide, see:
-- docs/USAGE.en.md (English)
-- docs/USAGE.ja.md (日本語)
-
----
-
 # CSStack.TADA（日本語）
 
 Transaction-Aware Domain Architecture（TADA）でシステム構築する際に役立つ C# のクラス・インターフェース群です。
@@ -54,8 +48,3 @@ Transaction-Aware Domain Architecture（TADA）でシステム構築する際に
 
 - TADAException を基底とした独自例外群（例: ObjectNotFoundException, DomainInvalidOperationException）
 
----
-
-詳細な使い方は以下を参照してください。
-- docs/USAGE.en.md（英語）
-- docs/USAGE.ja.md（日本語）
