@@ -1,15 +1,9 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.12.35514.174
+# Visual Studio Version 18
+VisualStudioVersion = 18.6.11822.322 stable
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CSStack.TADA", "src\CSStack.TADA\CSStack.TADA.csproj", "{A20B0E40-F0EF-4B87-9187-4AB9234F02D4}"
-EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docs", "docs", "{DDB4EF12-CC4E-5E88-E6FC-71A802F4DE97}"
-	ProjectSection(SolutionItems) = preProject
-		docs\USAGE.en.md = docs\USAGE.en.md
-		docs\USAGE.ja.md = docs\USAGE.ja.md
-	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CSStack.TADA.Tests", "tests\CSStack.TADA.Tests\CSStack.TADA.Tests.csproj", "{2A7DDE47-44B2-45B4-A208-5537F353EF25}"
 EndProject

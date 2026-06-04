@@ -6,9 +6,20 @@ namespace CSStack.TADA
     /// Helper class that provides validation actions managed by keys.
     /// </summary>
     /// <typeparam name="TKey"></typeparam>
-    public class KeyedValidateHelper<TKey>
-        where TKey : Enum
+    [Obsolete(
+        "KeyedValidateHelper is deprecated. Domain models should not be responsible for aggregating validation exceptions for UI purposes. "
+        + "Please handle validation aggregation in the application or presentation layer instead.")]
+    public class KeyedValidateHelper<TKey> where TKey : Enum
     {
+        /// <summary>
+        /// Validation action list.
+        /// </summary>
+        public ImmutableDictionary<TKey, Action> ValidateActions
+        {
+            get;
+            private set;
+        } = ImmutableDictionary<TKey, Action>.Empty;
+
         /// <summary>
         /// Add a validation action.
         /// </summary>
@@ -26,9 +37,7 @@ namespace CSStack.TADA
         /// <param name="valueObject"></param>
         public void Add(TKey key, IValueObject valueObject)
         {
-            ValidateActions = ValidateActions.Add(
-                key,
-                valueObject.Validate);
+            ValidateActions = ValidateActions.Add(key, valueObject.Validate);
         }
 
         /// <summary>
@@ -38,18 +47,18 @@ namespace CSStack.TADA
         public KeyedMultiReasonException<TKey>? ExecuteValidate()
         {
             var exceptions = new KeyedMultiReasonException<TKey>(ImmutableDictionary<TKey, Exception>.Empty);
-            foreach(var action in ValidateActions)
+            foreach (var action in ValidateActions)
             {
                 try
                 {
                     action.Value();
                 }
-				catch(Exception ex)
+                catch (Exception ex)
                 {
                     exceptions.AddException(action.Key, ex);
                 }
             }
-            if(!exceptions.Exceptions.Any())
+            if (!exceptions.Exceptions.Any())
             {
                 return null;
             }
@@ -62,31 +71,22 @@ namespace CSStack.TADA
         public void ExecuteValidateWithThrowException()
         {
             var exceptions = new KeyedMultiReasonException<TKey>(ImmutableDictionary<TKey, Exception>.Empty);
-            foreach(var action in ValidateActions)
+            foreach (var action in ValidateActions)
             {
                 try
                 {
                     action.Value();
                 }
-				catch(Exception ex)
+                catch (Exception ex)
                 {
                     exceptions.AddException(action.Key, ex);
                 }
             }
 
-            if(exceptions.Exceptions.Any())
+            if (exceptions.Exceptions.Any())
             {
                 throw exceptions;
             }
         }
-
-        /// <summary>
-        /// Validation action list.
-        /// </summary>
-        public ImmutableDictionary<TKey, Action> ValidateActions
-        {
-            get;
-            private set;
-        } = ImmutableDictionary<TKey, Action>.Empty;
     }
 }

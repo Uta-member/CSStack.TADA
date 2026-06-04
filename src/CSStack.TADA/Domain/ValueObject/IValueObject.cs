@@ -9,10 +9,5 @@
         /// Validate the value. Throws an exception when the value is invalid.
         /// </summary>
         void Validate();
-
-        /// <summary>
-        /// Indicates whether the value is invalid.
-        /// </summary>
-        bool IsInvalidValue { get; }
     }
 }

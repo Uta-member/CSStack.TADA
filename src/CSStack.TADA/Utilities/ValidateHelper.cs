@@ -5,8 +5,16 @@ namespace CSStack.TADA
     /// <summary>
     /// Helper class for input validation.
     /// </summary>
+    [Obsolete(
+        "ValidateHelper is deprecated. Avoid aggregating validation exceptions in domain models. " + "Use guard clauses (e.g., ArgumentNullException, ArgumentOutOfRangeException) "
+        + "directly in constructors or methods to enforce domain invariants.")]
     public class ValidateHelper
     {
+        /// <summary>
+        /// Validation action list.
+        /// </summary>
+        public ImmutableList<Action> ValidateActions { get; private set; } = ImmutableList<Action>.Empty;
+
         /// <summary>
         /// Add a validation action.
         /// </summary>
@@ -27,7 +35,7 @@ namespace CSStack.TADA
             Add(
                 () =>
                 {
-                    if(value == null)
+                    if (value == null)
                     {
                         throw new ValueObjectNullException(message);
                     }
@@ -56,7 +64,7 @@ namespace CSStack.TADA
             Add(
                 () =>
                 {
-                    if(value.Length < minLength || value.Length > maxLength)
+                    if (value.Length < minLength || value.Length > maxLength)
                     {
                         throw new ValueObjectLengthException(
                             minLength,
@@ -75,18 +83,18 @@ namespace CSStack.TADA
         public MultiReasonException? ExecuteValidate()
         {
             var exceptions = new MultiReasonException(ImmutableList<Exception>.Empty);
-            foreach(var action in ValidateActions)
+            foreach (var action in ValidateActions)
             {
                 try
                 {
                     action();
                 }
-				catch(Exception ex)
+                catch (Exception ex)
                 {
                     exceptions.AddException(ex);
                 }
             }
-            if(!exceptions.Exceptions.Any())
+            if (!exceptions.Exceptions.Any())
             {
                 return null;
             }
@@ -99,27 +107,22 @@ namespace CSStack.TADA
         public void ExecuteValidateWithThrowException()
         {
             var exceptions = new MultiReasonException(ImmutableList<Exception>.Empty);
-            foreach(var action in ValidateActions)
+            foreach (var action in ValidateActions)
             {
                 try
                 {
                     action();
                 }
-				catch(Exception ex)
+                catch (Exception ex)
                 {
                     exceptions.AddException(ex);
                 }
             }
 
-            if(exceptions.Exceptions.Any())
+            if (exceptions.Exceptions.Any())
             {
                 throw exceptions;
             }
         }
-
-        /// <summary>
-        /// Validation action list.
-        /// </summary>
-        public ImmutableList<Action> ValidateActions { get; private set; } = ImmutableList<Action>.Empty;
     }
 }
