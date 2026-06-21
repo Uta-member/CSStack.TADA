@@ -71,7 +71,7 @@ namespace CSStack.TADA
 		/// <summary>
 		/// Commit transactions.
 		/// </summary>
-		public async ValueTask CommitAsync()
+		public async ValueTask CommitTransactionsAsync()
 		{
 			foreach (var session in _sessions)
 			{
@@ -97,7 +97,7 @@ namespace CSStack.TADA
 			{
 				await BeginTransactionsAsync(sessionTypes);
 				await transactionFunction.Invoke(new TransactionSessions(Sessions));
-				await CommitAsync();
+				await CommitTransactionsAsync();
 			}
 			catch (Exception ex)
 			{
@@ -105,7 +105,7 @@ namespace CSStack.TADA
 				{
 					await beforeRollbackHandler.Invoke(ex);
 				}
-				await RollbackAsync();
+				await RollbackTransactionsAsync();
 				throw;
 			}
 			finally
@@ -135,19 +135,12 @@ namespace CSStack.TADA
 		}
 
 		/// <summary>
-		/// Rollback transactions.
+		/// Get transaction provider service
 		/// </summary>
-		public async ValueTask RollbackAsync()
-		{
-			foreach (var session in _sessions)
-			{
-				var transactionService = GetTransactionServiceBySessionType(session.Key);
-				await transactionService.RollbackAsync(session.Value);
-			}
-			_sessions.Clear();
-		}
-
-		private ITransactionService<TSession> GetTransactionService<TSession>() where TSession : IDisposable
+		/// <typeparam name="TSession"></typeparam>
+		/// <returns></returns>
+		/// <exception cref="InvalidOperationException"></exception>
+		public ITransactionService<TSession> GetTransactionService<TSession>() where TSession : IDisposable
 		{
 			var service = _serviceProvider.GetService(typeof(ITransactionService<>).MakeGenericType(typeof(TSession)));
 			if (service == null)
@@ -155,6 +148,19 @@ namespace CSStack.TADA
 				throw new InvalidOperationException($"No service found for {typeof(TSession).Name}");
 			}
 			return (ITransactionService<TSession>)service;
+		}
+
+		/// <summary>
+		/// Rollback transactions.
+		/// </summary>
+		public async ValueTask RollbackTransactionsAsync()
+		{
+			foreach (var session in _sessions)
+			{
+				var transactionService = GetTransactionServiceBySessionType(session.Key);
+				await transactionService.RollbackAsync(session.Value);
+			}
+			_sessions.Clear();
 		}
 
 		private dynamic GetTransactionServiceBySessionType(Type sessionType)

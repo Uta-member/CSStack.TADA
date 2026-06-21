@@ -6,14 +6,14 @@
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <Title>Transaction-Aware Domain Architecture Toolkit</Title>
-    <Version>2.0.1</Version>
+    <Version>2.0.2</Version>
     <Authors>Uta Sugane</Authors>
     <Description>A library of interfaces and classes useful for implementing Transaction-Aware Domain Architecture (TADA).</Description>
     <SignAssembly>False</SignAssembly>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/Uta-member/CSStack.TADA</RepositoryUrl>
     <PackageTags>TADA;DDD;CSStack;</PackageTags>
-    <PackageReleaseNotes>ValidateをIValueObjectとIEntityから外した</PackageReleaseNotes>
+    <PackageReleaseNotes>ITransactionManagerの公開メソッドを増やした</PackageReleaseNotes>
     <PackageLicenseExpression> MIT</PackageLicenseExpression>
     <PackageIcon>CSStack.png</PackageIcon>
   </PropertyGroup>
