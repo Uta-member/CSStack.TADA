@@ -13,23 +13,6 @@
 		public abstract TIdentifier Identifier { get; }
 
 		/// <inheritdoc/>
-		public bool IsInvalidValue
-		{
-			get
-			{
-				try
-				{
-					Validate();
-					return false;
-				}
-				catch
-				{
-					return true;
-				}
-			}
-		}
-
-		/// <inheritdoc/>
 		public static bool operator ==(EntityBase<TSelf, TIdentifier>? left, TSelf? right)
 		{
 			if (left is null)
@@ -74,8 +57,5 @@
 		{
 			return Identifier.GetHashCode();
 		}
-
-		/// <inheritdoc/>
-		public abstract void Validate();
 	}
 }

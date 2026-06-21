@@ -10,15 +10,5 @@
 		/// Entity identifier.
 		/// </summary>
 		TIdentifier Identifier { get; }
-
-		/// <summary>
-		/// Indicates whether there is an invalid value.
-		/// </summary>
-		bool IsInvalidValue { get; }
-
-		/// <summary>
-		/// Validate.
-		/// </summary>
-		void Validate();
 	}
 }
