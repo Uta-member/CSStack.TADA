@@ -6,21 +6,17 @@
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <Title>Transaction-Aware Domain Architecture Toolkit</Title>
-    <Version>1.1.0</Version>
+    <Version>2.0.0</Version>
     <Authors>Uta Sugane</Authors>
     <Description>A library of interfaces and classes useful for implementing Transaction-Aware Domain Architecture (TADA).</Description>
     <SignAssembly>False</SignAssembly>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/Uta-member/CSStack.TADA</RepositoryUrl>
     <PackageTags>TADA;DDD;CSStack;</PackageTags>
-    <PackageReleaseNotes>.NET10に対応し、ValueObjectBaseとValidateHelper関連を非推奨とした</PackageReleaseNotes>
+    <PackageReleaseNotes>非推奨クラスの削除。外部依存を0にした。ISingleValueObjectに型引数が1つしかいらないパターンを作成した。</PackageReleaseNotes>
     <PackageLicenseExpression> MIT</PackageLicenseExpression>
     <PackageIcon>CSStack.png</PackageIcon>
   </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
-  </ItemGroup>
 
   <ItemGroup>
 	  <None Include="CSStack.png">
