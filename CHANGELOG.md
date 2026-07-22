@@ -5,9 +5,25 @@
 
 ## [3.0.0]
 
-`TransactionManager` と `Optional<T>` 周りの修正。**破壊的変更を含みます。**
+`TransactionManager` と `Optional<T>` 周りの修正、およびエンティティの等価性の修正。
+**破壊的変更を含みます。**
 
 ### Breaking Changes
+
+#### `EntityBase<TSelf, TIdentifier>`
+
+- **等価性に実行時型の一致を追加しました。** これまでは `Identifier` だけで比較していたため、
+  同じ基底を継承した別種のエンティティ（`Admin` と `Guest` がともに
+  `User : EntityBase<User, UserId>` を継承しているような場合）が、識別子が一致するだけで
+  等価になっていました。現在は等価になりません。
+  `ValueObjectBase` について 0c8c6a7 で修正済みだった問題の、エンティティ側の対応です。
+- `==` / `!=` の引数型を対称にしました
+  （`(EntityBase<TSelf, TIdentifier>?, TSelf?)` → `(EntityBase<TSelf, TIdentifier>?, EntityBase<TSelf, TIdentifier>?)`）。
+  既存の呼び出しはそのままコンパイルできます。基底型として宣言した変数どうしの比較も
+  書けるようになりました。
+- `GetHashCode` が実行時型を含むようになりました（`HashCode.Combine(GetType(), Identifier)`）。
+  永続化されたハッシュ値に依存している場合は影響します。
+- 識別子の比較に `EqualityComparer<TIdentifier>.Default` を使うようになりました。
 
 #### `Optional<TValue>`
 
@@ -96,9 +112,25 @@
   false が返ったあとに `out` の値を使うとコンパイラが警告するようになります。
 - **`OptionalExtensions` の XML doc 破損**: タグ内部に `///` が混入して `<see cref=...>` が
   解決できなくなっていた 5 箇所を修正しました（CS1570 警告がゼロになります）。
+- **エンティティの誤った等価性**: 同じ基底を継承した別種のエンティティが、識別子の一致だけで
+  等価になっていました（上記 Breaking Changes を参照）。
 
 ### Documentation
 
+- **`docs/domain-model.md` を追加**。ドメイン層の型が何を強制し、何を規約に留めているかを整理:
+  1 集約 = エンティティ 1・リポジトリ 1・集約サービス 1 という `IAggregateService` の
+  5 型引数の意図 / エンティティの等価性と `Create`・`Reconstruct` の推奨 /
+  値オブジェクトは `record` で実装し検証は `Create` に書くこと /
+  `TOperateInfo` の意味と読み取りで受け取らない理由 / `SaveAsync` が upsert であること /
+  `IRepository` に検索系メソッドを置かない理由 / 各例外をどの層が投げるか。
+- **`docs/use-case.md` を追加**。`ICommandService` / `IQueryService` / `IDomainService` の
+  使い分け、コマンドサービスが `ITransactionManager` でトランザクションを包む規約とサンプル、
+  DI 登録、`IQueryService<TRes>` だけ型引数の意味が逆転している点、DTO に載せるもの。
+- ドメイン層・ユースケース層の XML doc に上記の設計意図を反映しました。
+  これまで宣言だけでは読み取れなかった規約（`TOperateInfo` とは何か、`SaveAsync` の
+  セマンティクス、検証の置き場所、例外を投げる層）が型の側から辿れるようになります。
+- README に `docs/` への導線と、主要コンポーネントの補足を追加しました。
+  トランザクション管理のサンプルにあった `SaveAsync` の引数順の誤りも修正しています。
 - **`Some(null)` の罠**を XML doc に明記:
   - 暗黙変換 / `Optional(TValue)` / `Some(TValue)` は null を渡すと `None` ではなく
     `Some(null)` を生成すること

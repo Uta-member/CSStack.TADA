@@ -25,9 +25,16 @@
 		/// <summary>
 		/// Delete the entity.
 		/// </summary>
+		/// <remarks>
+		/// Deleting an entity that is no longer there is not a failure of this method, so it must not throw
+		/// <see cref="ObjectNotFoundException"/>. Whether the entity has to exist is decided by the caller,
+		/// which normally reads it through
+		/// <see cref="IRepository{TEntity, TEntityIdentifier, TOperateInfo, TSession}.FindByIdentifierAsync"/>
+		/// first — that is also why this method takes the entity rather than its identifier.
+		/// </remarks>
 		/// <param name="session">Transaction factor</param>
 		/// <param name="entity">Entity to delete</param>
-		/// <param name="operateInfo">Operate info</param>
+		/// <param name="operateInfo">Operate info to record alongside the deletion</param>
 		/// <param name="cancellationToken">Cancellation token</param>
 		ValueTask DeleteAsync(
 			TSession session,

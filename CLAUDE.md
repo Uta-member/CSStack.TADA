@@ -28,6 +28,16 @@ NuGet パッケージ名は `CSStack.TADA`、`net8.0;net10.0` のマルチター
    セッションを保持するため、Singleton にすると全リクエストで混線する
 4. **複数セッションの commit はアトミックではない。** 2 相コミットではないので、
    2 つ目が失敗しても 1 つ目は確定したまま残る
+5. **`IRepository` に検索系メソッドを足さない。** あるのは `FindByIdentifierAsync` と
+   `SaveAsync`（upsert）だけ。一覧取得・条件検索は `IQueryService` の仕事
+   → [docs/domain-model.md](docs/domain-model.md)
+6. **値オブジェクトは `record` で実装する。** 検証は `Create` の中に書き、
+   `Reconstruct`（永続化からの復元）では検証しない。`Validate` メンバーは存在しない
+7. **トランザクションの境界は `ICommandService`。** `ITransactionManager` を注入して
+   `ExecuteTransactionAsync` で包み、セッションを下の層へ渡す。それより下の層は
+   トランザクションを開始しない → [docs/use-case.md](docs/use-case.md)
+8. **`ObjectNotFoundException` を投げるのはリポジトリではない。** 不在は
+   `Optional<T>.Empty` で返り、それを異常とみなすかは集約サービス / ユースケースが決める
 
 ## ビルド・テスト
 

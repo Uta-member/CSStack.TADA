@@ -12,13 +12,26 @@ Transaction-Aware Domain Architecture Toolkit (TADA) – A library of C# classes
 
 ## Main Components and Usage
 
-- EntityBase: Base class for entities; inherit with your strongly-typed ID.
-- IRepository: Repository interface; abstracts persistence operations.
-- IDomainService: Domain service interfaces for business logic.
+- EntityBase: Base class for entities; inherit with your strongly-typed ID. Equality is by identifier
+  and run-time type. See [docs/domain-model.md](docs/domain-model.md).
+- IValueObject / ISingleValueObject: Value object markers and the `Create` (validates) / `Reconstruct`
+  (restores from storage) contract. Implement them on a `record`.
+- IRepository: Repository interface; abstracts persistence operations. `SaveAsync` is an upsert, and
+  there are deliberately no query methods — those belong to IQueryService.
+- IDomainService: Domain service interfaces for business logic that spans aggregates.
 - AggregateServiceBase / IAggregateService: Base/interface for aggregate services using repositories.
+- ICommandService / IQueryService: Use case entry points. A command service owns the transaction
+  boundary. See [docs/use-case.md](docs/use-case.md).
 - ITransactionService: Interface for transaction management; used in the Use Case layer.
 - ITransactionManager / TransactionManager: Runs a unit of work across one or more transaction sessions.
 - Optional: Utility struct representing three states (None/Some(null)/Some(value)). See [docs/optional.md](docs/optional.md).
+
+## Documentation
+
+- [docs/domain-model.md](docs/domain-model.md) — entities, value objects, repositories, aggregates:
+  what TADA enforces and what is convention
+- [docs/use-case.md](docs/use-case.md) — command / query / domain services and where the transaction begins
+- [docs/optional.md](docs/optional.md) — the three states of `Optional<T>`
 
 ## Transaction management
 
@@ -33,7 +46,7 @@ await transactionManager.ExecuteTransactionAsync<MySession>(
     async (sessions, cancellationToken) =>
     {
         var session = sessions.GetSession<MySession>();
-        await repository.SaveAsync(entity, session, cancellationToken);
+        await repository.SaveAsync(session, entity, operateInfo, cancellationToken);
     },
     cancellationToken: cancellationToken);
 ```
@@ -102,13 +115,27 @@ Transaction-Aware Domain Architecture（TADA）でシステム構築する際に
 
 ## 主要コンポーネントと使い方
 
-- EntityBase: エンティティの基底クラス。強い型付けの ID を指定して継承します。
-- IRepository: リポジトリのインターフェース。永続化処理を抽象化します。
-- IDomainService: ビジネスロジックを実装するためのドメインサービスのインターフェース。
+- EntityBase: エンティティの基底クラス。強い型付けの ID を指定して継承します。等価性は識別子と
+  実行時型で判断されます。[docs/domain-model.md](docs/domain-model.md) を参照。
+- IValueObject / ISingleValueObject: 値オブジェクトのマーカーと `Create`（検証あり）/
+  `Reconstruct`（永続化からの復元・検証なし）の規約。`record` で実装してください。
+- IRepository: リポジトリのインターフェース。永続化処理を抽象化します。`SaveAsync` は upsert で、
+  検索系メソッドは意図的に持たせていません（それらは IQueryService の仕事です）。
+- IDomainService: 集約をまたぐドメインのルールを実装するためのインターフェース。
 - AggregateServiceBase / IAggregateService: リポジトリを利用した集約操作のための基底クラス/インターフェース。
+- ICommandService / IQueryService: ユースケースの入口。トランザクションの境界はコマンドサービスにあります。
+  [docs/use-case.md](docs/use-case.md) を参照。
 - ITransactionService: トランザクション管理のためのインターフェース。ユースケース層等で利用します。
 - ITransactionManager / TransactionManager: 1 つ以上のトランザクションセッションをまたいで処理を実行します。
 - Optional: 三状態（None/Some(null)/Some(value)）を表現するユーティリティ構造体。[docs/optional.md](docs/optional.md) を参照。
+
+## ドキュメント
+
+- [docs/domain-model.md](docs/domain-model.md) — エンティティ / 値オブジェクト / リポジトリ / 集約。
+  TADA が何を強制し、何を規約に留めているか
+- [docs/use-case.md](docs/use-case.md) — コマンド / クエリ / ドメインサービスの使い分けと
+  トランザクションの境界
+- [docs/optional.md](docs/optional.md) — `Optional<T>` の三状態
 
 ## トランザクション管理
 
@@ -123,7 +150,7 @@ await transactionManager.ExecuteTransactionAsync<MySession>(
     async (sessions, cancellationToken) =>
     {
         var session = sessions.GetSession<MySession>();
-        await repository.SaveAsync(entity, session, cancellationToken);
+        await repository.SaveAsync(session, entity, operateInfo, cancellationToken);
     },
     cancellationToken: cancellationToken);
 ```
