@@ -18,7 +18,7 @@ Transaction-Aware Domain Architecture Toolkit (TADA) – A library of C# classes
 - AggregateServiceBase / IAggregateService: Base/interface for aggregate services using repositories.
 - ITransactionService: Interface for transaction management; used in the Use Case layer.
 - ITransactionManager / TransactionManager: Runs a unit of work across one or more transaction sessions.
-- Optional: Utility struct to represent presence/absence of a value (None/Some(null)/Some(value)).
+- Optional: Utility struct representing three states (None/Some(null)/Some(value)). See [docs/optional.md](docs/optional.md).
 
 ## Transaction management
 
@@ -48,6 +48,38 @@ Three things to know before you rely on it:
 - **Rollback is never cancelled.** Even when the `CancellationToken` is already cancelled, the rollback
   runs, so cancellation cannot leave transactions open.
 
+## Optional&lt;T&gt;
+
+`Optional<TValue>` represents **three** states — `None` / `Some(null)` / `Some(value)` — so that
+"not specified" can be told apart from "explicitly set to null", which is what partial updates such
+as HTTP PATCH need. It is the return type of `IRepository.FindByIdentifierAsync`.
+
+```csharp
+// Repository. "Not found" is Optional<T>.Empty — never `return null;`.
+// The implicit conversion turns null into Some(null), whose HasValue is true, so callers
+// get true out of TryGetValue and then a NullReferenceException.
+public async ValueTask<Optional<User>> FindByIdentifierAsync(
+    MySession session,
+    UserId identifier,
+    CancellationToken cancellationToken = default)
+{
+    var record = await session.Users.FindAsync(identifier.Value, cancellationToken);
+    return record is null ? Optional<User>.Empty : User.Reconstruct(record);
+}
+
+// Caller.
+var displayName = optional.Match(
+    onSome: user => user.Name,
+    onNone: () => "(not registered)");
+```
+
+- **Declare the nullability of the type argument.** `Optional<string?>` when null is a legal value,
+  `Optional<User>` when it is not. The compiler's nullable analysis follows that declaration.
+- Equality distinguishes all three states: `None == Some(null)` is **false**.
+- `Map` / `Select` / `Bind` / `SelectMany` / `Where` / `Match` are provided, so LINQ query syntax works.
+
+See [docs/optional.md](docs/optional.md) for the full guide.
+
 ## Exceptions
 
 - Custom exceptions based on TADAException (e.g., ObjectNotFoundException, DomainInvalidOperationException)
@@ -76,7 +108,7 @@ Transaction-Aware Domain Architecture（TADA）でシステム構築する際に
 - AggregateServiceBase / IAggregateService: リポジトリを利用した集約操作のための基底クラス/インターフェース。
 - ITransactionService: トランザクション管理のためのインターフェース。ユースケース層等で利用します。
 - ITransactionManager / TransactionManager: 1 つ以上のトランザクションセッションをまたいで処理を実行します。
-- Optional: 値の有無（None/Some(null)/Some(value)）を表現するユーティリティ構造体。
+- Optional: 三状態（None/Some(null)/Some(value)）を表現するユーティリティ構造体。[docs/optional.md](docs/optional.md) を参照。
 
 ## トランザクション管理
 
@@ -104,6 +136,38 @@ await transactionManager.ExecuteTransactionAsync<MySession>(
   失敗しても 1 つ目は確定したままです。TransactionManager は未 commit のセッションのみロールバックを試みます。
 - **ロールバックはキャンセルされません。** `CancellationToken` がキャンセル済みでもロールバックは実行されるため、
   キャンセルによってトランザクションが開いたまま残ることはありません。
+
+## Optional&lt;T&gt;
+
+`Optional<TValue>` は `None` / `Some(null)` / `Some(value)` の **三状態**を表現します。
+「未指定」と「明示的に null を指定した」を区別するためで、HTTP PATCH のような部分更新で必要になります。
+`IRepository.FindByIdentifierAsync` の戻り値でもあります。
+
+```csharp
+// リポジトリ実装。「見つからなかった」は Optional<T>.Empty で表します。`return null;` は禁止です。
+// 暗黙変換によって null は Some(null)（HasValue = true）になるため、呼び出し側の
+// TryGetValue が true を返したうえで NullReferenceException になります。
+public async ValueTask<Optional<User>> FindByIdentifierAsync(
+    MySession session,
+    UserId identifier,
+    CancellationToken cancellationToken = default)
+{
+    var record = await session.Users.FindAsync(identifier.Value, cancellationToken);
+    return record is null ? Optional<User>.Empty : User.Reconstruct(record);
+}
+
+// 呼び出し側。
+var displayName = optional.Match(
+    onSome: user => user.Name,
+    onNone: () => "(未登録)");
+```
+
+- **型引数の null 許容性を正しく宣言してください。** null が値として正当なら `Optional<string?>`、
+  そうでなければ `Optional<User>` です。コンパイラの null 許容解析はこの宣言に従います。
+- 等価性は三状態を区別します。`None == Some(null)` は **false** です。
+- `Map` / `Select` / `Bind` / `SelectMany` / `Where` / `Match` を備えており、LINQ クエリ構文が使えます。
+
+詳細は [docs/optional.md](docs/optional.md) を参照してください。
 
 ## 例外
 

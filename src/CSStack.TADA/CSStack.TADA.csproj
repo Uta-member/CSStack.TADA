@@ -13,7 +13,7 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/Uta-member/CSStack.TADA</RepositoryUrl>
     <PackageTags>TADA;DDD;CSStack;</PackageTags>
-    <PackageReleaseNotes>破壊的変更あり。TransactionManagerのDispose漏れ・rollbackの中断・commitの部分失敗を修正し、CancellationToken対応とdynamic除去を行った。詳細はCHANGELOG.mdを参照。</PackageReleaseNotes>
+    <PackageReleaseNotes>破壊的変更あり。TransactionManagerのDispose漏れ・rollbackの中断・commitの部分失敗を修正し、CancellationToken対応とdynamic除去を行った。Optional&lt;T&gt;をreadonly struct化してinitアクセサを削除し、等価性とMap/Match/LINQ対応を追加した。詳細はCHANGELOG.mdを参照。</PackageReleaseNotes>
     <PackageLicenseExpression> MIT</PackageLicenseExpression>
     <PackageIcon>CSStack.png</PackageIcon>
   </PropertyGroup>
