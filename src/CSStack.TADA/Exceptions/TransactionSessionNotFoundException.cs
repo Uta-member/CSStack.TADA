@@ -1,4 +1,4 @@
-namespace CSStack.TADA
+﻿namespace CSStack.TADA
 {
 	/// <summary>
 	/// Exception thrown when a transaction session is requested before it has been begun.

@@ -9,9 +9,9 @@
 		/// Constructor
 		/// </summary>
 		/// <param name="message">Message</param>
-		/// <param name="innserException">Inner exception</param>
-		public ValueObjectInvalidException(string? message = null, Exception? innserException = null)
-			: base(message, innserException)
+		/// <param name="innerException">Inner exception</param>
+		public ValueObjectInvalidException(string? message = null, Exception? innerException = null)
+			: base(message, innerException)
 		{
 		}
 	}

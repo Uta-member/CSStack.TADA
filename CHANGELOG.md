@@ -77,6 +77,17 @@
 - `GetSession<TSession>()` が未登録の型に対して `KeyNotFoundException` ではなく
   `TransactionSessionNotFoundException` を送出。
 
+#### 例外クラス
+
+- **内部例外のパラメーター名を `innserException` から `innerException` に修正しました**
+  （`TADAException` / `DomainInvalidOperationException` / `ObjectAlreadyExistException` /
+  `ObjectNotFoundException` / `ValueObjectInvalidException` / `ValueObjectLengthException` /
+  `ValueObjectNullException` の 7 クラス）。
+  綴り誤りのため `new ObjectNotFoundException(innerException: ex)` と書けず、
+  `.NET` の慣習（`Exception(string, Exception)` の第 2 引数は `innerException`）にも反していました。
+  **名前付き引数で `innserException:` と書いているコードはコンパイルエラーになります。**
+  位置引数で渡している場合は影響ありません。
+
 ### Added
 
 - `Optional<TValue>` が `IEquatable<Optional<TValue>>` を実装し、`==` / `!=` / `Equals` /
@@ -95,6 +106,14 @@
 - `ITransactionManager.ExecuteTransactionAsync` のジェネリックオーバーロード（型引数 1〜3 個）。
   `ImmutableList.Create(typeof(MySession))` を書かずに済み、`IDisposable` でない型はコンパイルエラーになります。
 - `IDisposable` を実装しないセッション型を `Type` 版 API に渡した場合の `ArgumentException`。
+- `ObjectNotFoundException` / `ObjectAlreadyExistException` に、**対象の型と識別子を受け取る
+  コンストラクター** `(Type objectType, object? identifier, string? message = null,
+  Exception? innerException = null)` を追加しました。
+  `ObjectType` / `Identifier` プロパティとして保持し、`message` を省略すると
+  「どの型の、どの識別子が」を含むメッセージを自動生成します。
+  これまではどちらの例外もコンテキストを一切持たず、ログから追跡できませんでした。
+  既存のコンストラクターはそのまま残しているので非破壊です
+  （`ObjectType` / `Identifier` は `null` になります）。
 
 ### Fixed
 
@@ -147,6 +166,22 @@
   - 複数セッションの commit は**アトミックではない**こと（2 相コミットではない）
   - `TransactionManager` はスレッドセーフではなく、**Scoped で登録すること**
   - セッションの所有権は `ITransactionManager` にあること
+- **空だった XML doc タグを埋めました**（`ITransactionManager` / `ITransactionService` /
+  `ICommandService` の `<returns>` 計 11 箇所）。特に
+  `ExecuteTransactionAsync` の `sessionTypes` / `transactionFunction` / `beforeRollbackHandler` は、
+  挙動が宣言から読み取れなかったため書き下しています:
+  - `beforeRollbackHandler` はロールバック**前**に呼ばれること、
+    **例外を投げてもロールバックは中断されず**、元の失敗と併せて報告されること、
+    本体成功後の commit 失敗でも呼ばれること
+  - `transactionFunction` がセッションを commit / rollback / dispose してはいけないこと
+  - `sessionTypes` に挙げていないセッションを要求すると
+    `TransactionSessionNotFoundException` になること
+- `ValueObjectLengthException` の XML doc を補強しました。
+  引数が **3 つとも `int`** で順序を誤ってもコンパイルが通るため、
+  引数の意味（境界値が先、弾かれた長さが最後）と名前付き引数の推奨を明記し、
+  `docs/domain-model.md` のサンプルも名前付き引数に改めています。
+- `docs/domain-model.md` に `ObjectNotFoundException` / `ObjectAlreadyExistException` へ
+  対象型と識別子を渡す節を追加しました。
 
 ## [2.0.2] 以前
 

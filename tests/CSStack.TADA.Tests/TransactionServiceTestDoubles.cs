@@ -1,4 +1,4 @@
-namespace CSStack.TADA.Tests
+﻿namespace CSStack.TADA.Tests
 {
 	/// <summary>
 	/// Records every begin / commit / rollback / dispose in the order it happened.

@@ -44,7 +44,7 @@ public sealed class UserAggregateService
 		if (!optional.TryGetValue(out var user))
 		{
 			// 「見つからないことが問題か」を決めるのはこの層。リポジトリではない
-			throw new ObjectNotFoundException($"User {userId.Value} was not found.");
+			throw new ObjectNotFoundException(typeof(User), userId.Value);
 		}
 
 		await Repository.SaveAsync(session, user.ChangeName(newName), operateInfo, cancellationToken);
@@ -176,6 +176,11 @@ public sealed record Email : ISingleValueObject<string, Email> { /* ... */ }
 | `ValueObjectNullException` | 値が無い |
 | `ValueObjectLengthException` | 長さが範囲外。`MinLength` / `MaxLength` / `CurrentLength` を持つ |
 
+`ValueObjectLengthException` の引数は **3 つとも `int`** です。順序を間違えても
+コンパイルが通り、誤った内容の例外になります。順序は
+`minLength`, `maxLength`, `currentLength`（**値オブジェクトが宣言する境界が先、
+弾かれた値の長さが最後**）で、迷うなら名前付き引数で書いてください。
+
 ### 長さの制約は `ILengthDefinedSingleValueObject` で公開する
 
 `ILengthDefinedSingleValueObject` は **境界値を公開するだけ** で、検証はしません。
@@ -203,7 +208,10 @@ public sealed record UserName : ISingleValueObject<string, UserName>, ILengthDef
 		}
 		if (value.Length < MinLength || value.Length > MaxLength)
 		{
-			throw new ValueObjectLengthException(MinLength, MaxLength, value.Length);
+			throw new ValueObjectLengthException(
+				minLength: MinLength,
+				maxLength: MaxLength,
+				currentLength: value.Length);
 		}
 
 		return new UserName(value);
@@ -328,6 +336,32 @@ public sealed record OperateInfo(string OperatorId, DateTimeOffset OperatedAt);
 | `ValueObjectInvalidException`（派生含む） | 値オブジェクトの `Create` | 不変条件違反 |
 | `DomainInvalidOperationException` | エンティティ / ドメインサービス | 状態的に許されない操作（退会済みユーザーの更新等） |
 
+### 対象型と識別子を渡す
+
+`ObjectNotFoundException` と `ObjectAlreadyExistException` には、**対象の型と識別子を渡す
+コンストラクター**があります。こちらを使ってください。メッセージを手で書かなくても、
+ログから「どの型の、どれが」問題だったのかを追えるようになります。
+
+```csharp
+// 推奨。メッセージは自動生成され、ObjectType / Identifier が例外に残る
+throw new ObjectNotFoundException(typeof(User), userId.Value);
+
+// メッセージだけの従来のコンストラクターも残っています（ObjectType / Identifier は null）
+throw new ObjectNotFoundException($"User {userId.Value} was not found.");
+```
+
+| メンバー | 内容 |
+|---|---|
+| `ObjectType` | 見つからなかった / 既に存在した対象の型。メッセージだけで生成した場合は `null` |
+| `Identifier` | 引いたときの識別子。渡さなかった場合は `null` |
+
+`ObjectAlreadyExistException` の `Identifier` には、**主キーよりも「一意であるべき値」**を
+渡すことが多くなります（既に使われているメールアドレスなど）。
+どちらの例外も `Identifier` の `ToString()` がメッセージに入るので、
+**秘密の値を渡さないでください。**
+
+第 3 引数に `message` を渡した場合は、自動生成せずそのメッセージを使います。
+
 ---
 
 ## ドメインサービス
@@ -362,7 +396,7 @@ public sealed record EnsureEmailIsUniqueRequest(MySession Session, Email Email) 
 | 永続化から復元する | `Reconstruct`（検証しない） |
 | 長さの制約を持たせる | `ILengthDefinedSingleValueObject` で公開し、`Create` で検証する |
 | 見つからなかったことを表す | `Optional<T>.Empty` を返す（`return null;` ではない） |
-| 見つからないのを異常とみなす | 集約サービス / ユースケースで `ObjectNotFoundException` |
+| 見つからないのを異常とみなす | 集約サービス / ユースケースで `ObjectNotFoundException(typeof(T), id)` |
 | 保存する | `SaveAsync`（upsert）。操作情報を必ず渡す |
 | 一覧・条件検索をする | `IQueryService`。リポジトリには足さない |
 | 集約をまたぐルールを書く | ドメインサービス。セッションはリクエスト DTO に載せる |

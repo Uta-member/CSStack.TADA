@@ -1,4 +1,4 @@
-namespace CSStack.TADA
+﻿namespace CSStack.TADA
 {
 	/// <summary>
 	/// Non-generic base of <see cref="ITransactionService{TSession}"/>.
@@ -27,7 +27,8 @@ namespace CSStack.TADA
 		/// </summary>
 		/// <param name="session">The factor that keeps the transaction</param>
 		/// <param name="cancellationToken">Cancellation token</param>
-		/// <returns></returns>
+		/// <returns>A task that completes once the changes are durable. The session is not disposed —
+		/// <see cref="ITransactionManager"/> owns it and disposes it.</returns>
 		ValueTask CommitAsync(IDisposable session, CancellationToken cancellationToken = default);
 
 		/// <summary>
@@ -35,7 +36,8 @@ namespace CSStack.TADA
 		/// </summary>
 		/// <param name="session">The factor that keeps the transaction</param>
 		/// <param name="cancellationToken">Cancellation token</param>
-		/// <returns></returns>
+		/// <returns>A task that completes once the changes are discarded. The session is not disposed —
+		/// <see cref="ITransactionManager"/> owns it and disposes it.</returns>
 		ValueTask RollbackAsync(IDisposable session, CancellationToken cancellationToken = default);
 	}
 
@@ -65,7 +67,8 @@ namespace CSStack.TADA
 		/// </summary>
 		/// <param name="session">The factor to keep the transaction</param>
 		/// <param name="cancellationToken">Cancellation token</param>
-		/// <returns></returns>
+		/// <returns>A task that completes once the changes are durable. Do not dispose
+		/// <paramref name="session"/> here — <see cref="ITransactionManager"/> owns it.</returns>
 		ValueTask CommitAsync(TSession session, CancellationToken cancellationToken = default);
 
 		/// <summary>
@@ -73,7 +76,8 @@ namespace CSStack.TADA
 		/// </summary>
 		/// <param name="session">The factor to keep the transaction</param>
 		/// <param name="cancellationToken">Cancellation token</param>
-		/// <returns></returns>
+		/// <returns>A task that completes once the changes are discarded. Do not dispose
+		/// <paramref name="session"/> here — <see cref="ITransactionManager"/> owns it.</returns>
 		ValueTask RollbackAsync(TSession session, CancellationToken cancellationToken = default);
 
 		async ValueTask<IDisposable> ITransactionService.BeginAsync(CancellationToken cancellationToken)

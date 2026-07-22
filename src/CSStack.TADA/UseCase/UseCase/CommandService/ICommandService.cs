@@ -56,7 +56,8 @@
 		/// </summary>
 		/// <param name="req">Request</param>
 		/// <param name="cancellationToken">Cancellation token</param>
-		/// <returns></returns>
+		/// <returns>A task that completes once the transaction opened by this use case has been
+		/// committed</returns>
 		ValueTask ExecuteAsync(TReq req, CancellationToken cancellationToken = default);
 	}
 

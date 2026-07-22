@@ -1,4 +1,4 @@
-using System.Collections.Immutable;
+﻿using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 
 namespace CSStack.TADA
@@ -32,7 +32,8 @@ namespace CSStack.TADA
 		/// </summary>
 		/// <typeparam name="TSession">Session type</typeparam>
 		/// <param name="cancellationToken">Cancellation token</param>
-		/// <returns></returns>
+		/// <returns>A task that completes once the session has begun and is retrievable with
+		/// <see cref="GetSession{TSession}"/></returns>
 		/// <exception cref="InvalidOperationException">
 		/// No <see cref="ITransactionService{TSession}"/> is registered for <typeparamref name="TSession"/>.
 		/// </exception>
@@ -44,7 +45,8 @@ namespace CSStack.TADA
 		/// </summary>
 		/// <param name="sessionType">Session type. Must implement <see cref="IDisposable"/>.</param>
 		/// <param name="cancellationToken">Cancellation token</param>
-		/// <returns></returns>
+		/// <returns>A task that completes once the session has begun and is retrievable with
+		/// <see cref="GetSession(Type)"/></returns>
 		/// <exception cref="ArgumentException"><paramref name="sessionType"/> does not implement <see cref="IDisposable"/>.</exception>
 		/// <exception cref="InvalidOperationException">
 		/// No <see cref="ITransactionService{TSession}"/> is registered for <paramref name="sessionType"/>.
@@ -56,14 +58,14 @@ namespace CSStack.TADA
 		/// </summary>
 		/// <param name="sessionTypes">Session types. Each must implement <see cref="IDisposable"/>.</param>
 		/// <param name="cancellationToken">Cancellation token</param>
-		/// <returns></returns>
+		/// <returns>A task that completes once every session has begun</returns>
 		ValueTask BeginTransactionsAsync(ImmutableList<Type> sessionTypes, CancellationToken cancellationToken = default);
 
 		/// <summary>
 		/// Commit every session that has begun, in the order they were begun, then dispose them all.
 		/// </summary>
 		/// <param name="cancellationToken">Cancellation token</param>
-		/// <returns></returns>
+		/// <returns>A task that completes once every session has been committed and disposed</returns>
 		/// <remarks>
 		/// Commits are not atomic across sessions. When one commit fails, the sessions committed before it stay
 		/// committed, and the remaining sessions are rolled back on a best-effort basis (rollback is never
@@ -80,7 +82,7 @@ namespace CSStack.TADA
 		/// Roll back every session that has begun, in reverse order, then dispose them all.
 		/// </summary>
 		/// <param name="cancellationToken">Cancellation token</param>
-		/// <returns></returns>
+		/// <returns>A task that completes once every session has been rolled back and disposed</returns>
 		/// <remarks>
 		/// A failure on one session does not stop the others: every session is always attempted, and the
 		/// failures are reported together afterwards.
@@ -94,11 +96,27 @@ namespace CSStack.TADA
 		/// Begin the given transactions, run <paramref name="transactionFunction"/>, then commit.
 		/// Rolls back and rethrows when anything fails.
 		/// </summary>
-		/// <param name="sessionTypes">Session types to begin. Each must implement <see cref="IDisposable"/>.</param>
-		/// <param name="transactionFunction">The body of the transaction</param>
-		/// <param name="beforeRollbackHandler">Invoked with the failure before the rollback is attempted</param>
+		/// <param name="sessionTypes">
+		/// Session types to begin, in this order. Each must implement <see cref="IDisposable"/>. Only the
+		/// sessions named here can be retrieved inside <paramref name="transactionFunction"/>; asking for any
+		/// other one throws <see cref="TransactionSessionNotFoundException"/>.
+		/// </param>
+		/// <param name="transactionFunction">
+		/// The body of the transaction. It receives the sessions that were begun and the cancellation token.
+		/// Everything it does succeeds or fails as one unit — the commit happens after it returns, and any
+		/// exception it throws triggers the rollback. It must not commit, roll back or dispose the sessions
+		/// itself.
+		/// </param>
+		/// <param name="beforeRollbackHandler">
+		/// Invoked with the failure <i>before</i> the rollback is attempted, so it observes the transaction
+		/// while the data is still visible to the sessions — that is the point of it running first. Use it to
+		/// capture diagnostics; do not use it to undo work, and note the transaction is about to be rolled
+		/// back regardless of what it does. A handler that throws does <b>not</b> prevent the rollback: its
+		/// exception is collected and reported alongside the original failure. It also runs when the body
+		/// succeeded and the commit failed.
+		/// </param>
 		/// <param name="cancellationToken">Cancellation token</param>
-		/// <returns></returns>
+		/// <returns>A task that completes once the body has run and every session has been committed</returns>
 		/// <remarks>
 		/// The rollback is always attempted with an uncancelled token, so cancelling
 		/// <paramref name="cancellationToken"/> does not leave transactions open.
