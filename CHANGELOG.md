@@ -3,7 +3,27 @@
 このファイルは [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に沿って記述し、
 バージョンは [Semantic Versioning](https://semver.org/lang/ja/) に従います。
 
-## [3.0.0]
+## バージョニング方針
+
+- バージョンは [Semantic Versioning 2.0.0](https://semver.org/lang/ja/) に従います。
+  - **MAJOR**: 公開 API の破壊的変更。型やメンバーの削除・改名・シグネチャ変更に加えて、
+    **既定実装のないメンバーをインターフェースに追加すること**も含みます。
+    このライブラリはインターフェース中心で、利用者が `ITransactionManager` や
+    `ITransactionService<TSession>` を自前で実装するため、メンバーの追加でも実装側が壊れるからです。
+  - **MINOR**: 後方互換を保った機能追加。
+  - **PATCH**: 後方互換を保ったバグ修正・ドキュメント修正。
+- 型を削除するときは、いきなり消さず `[Obsolete]` を経てから次の MAJOR で削除します
+  （v1.1.0 で非推奨 → v2.0.0 で削除、が実例です）。
+- バージョン番号の定義箇所は `Directory.Build.props` の `<Version>` **1 箇所だけ**です。
+  `.csproj` 側には書きません。
+- リリースは `v<version>` 形式のタグ push で行います。
+  `.github/workflows/release.yml` がタグ名と `<Version>` の一致を検証したうえで
+  `dotnet pack` と NuGet への publish を実行します。
+
+> **既知の逸脱:** v2.0.1 と v2.0.2 はこの方針に照らすと PATCH ではありません
+> （詳細は各セクションを参照）。CHANGELOG 導入前のリリースで、遡って記載したものです。
+
+## [3.0.0] - 未リリース
 
 `TransactionManager` と `Optional<T>` 周りの修正、およびエンティティの等価性の修正。
 **破壊的変更を含みます。**
@@ -183,6 +203,123 @@
 - `docs/domain-model.md` に `ObjectNotFoundException` / `ObjectAlreadyExistException` へ
   対象型と識別子を渡す節を追加しました。
 
-## [2.0.2] 以前
+### Repository / ビルド
 
-CHANGELOG 導入前のため記録なし。コミット履歴を参照してください。
+パッケージのライセンス表記以外は利用者から見える変更ではありませんが、リポジトリ側の整備です。
+
+- **`PackageLicenseExpression` の値が `" MIT"`（先頭に半角スペース）になっていたのを修正しました。**
+- `.editorconfig` を追加しました。`src/` はタブ・`tests/` はスペース 4、`.cs` は UTF-8 BOM 付き、
+  namespace はフォルダ構成を反映せずフラット（`dotnet_style_namespace_match_folder = false`）、
+  ブロックスコープの namespace、という既存の規約を機械的に強制します。
+- `Directory.Build.props` を追加し、`Version` / `Authors` / ライセンス / リポジトリ URL と
+  `LangVersion` / `Nullable` / `ImplicitUsings` を集約しました。
+  `TreatWarningsAsErrors` を有効にしたため、XML doc の破損（CS1570 / CS1574）や
+  記述漏れ（CS1591）でビルドが失敗します（コード側で直せない NU1902 / NU1903 は除外）。
+- GitHub Actions を追加しました。push / PR で net8.0・net10.0 の両方をビルドしてテストし
+  （`.github/workflows/ci.yml`）、`v*` タグの push で pack して NuGet に publish します
+  （`.github/workflows/release.yml`）。
+- `src/CSStack.TADA/UseCase/UseCase/` の二重フォルダを `src/CSStack.TADA/UseCase/` に解消しました。
+  namespace はすべて `CSStack.TADA` でフラットなため API に影響はありません。
+
+## [2.0.2] - 2026-06-21
+
+> **遡及記載**: CHANGELOG 導入前のリリースをコミット履歴から再構成したものです。
+> PATCH として出していますが、内容は下記のとおり MAJOR 相当です。
+
+### Added
+
+- `ITransactionManager` に、それまで実装クラス `TransactionManager` にしか無かったメンバーを追加:
+  `BeginTransactionAsync<TSession>()` / `CommitTransactionsAsync()` /
+  `RollbackTransactionsAsync()` / `GetSession<TSession>()` /
+  `GetTransactionService<TSession>()`。
+  インターフェース越しに個別のトランザクション操作が呼べるようになりました。
+
+### Breaking Changes
+
+- 上記はいずれも既定実装のないインターフェースメンバーの追加のため、
+  **`ITransactionManager` を自前で実装していた場合はコンパイルエラーになります。**
+  `TransactionManager` をそのまま使っていた場合は影響ありません。
+
+## [2.0.1] - 2026-06-21
+
+> **遡及記載**: 同上。PATCH として出していますが、内容は MAJOR 相当です。
+
+### Removed
+
+- `IValueObject.Validate()` を削除しました。`IValueObject` はメンバーを持たない
+  マーカーインターフェースになっています。
+- `IEntity<TIdentifier>` から `Validate()` と `IsInvalidValue` を削除し、
+  `EntityBase<TSelf, TIdentifier>` の対応する実装も削除しました。
+- `ValueObjectExtensions`（`IValueObject` に `IsInvalidValue` を生やす拡張）を削除しました。
+  v1.1.0 で `ValueObjectBase.IsInvalidValue` の移行先として用意したものですが、
+  結局この版で役目を終えています。
+
+### 移行方法
+
+検証は**生成時に済ませる**方針に変わりました。値オブジェクトは `record` で実装し、
+検証は `Create` の中に書きます。永続化からの復元である `Reconstruct` では検証しません。
+不正な値を保持したまま存在して、後から `Validate()` で確かめるオブジェクトは作りません。
+`Validate` メンバーはライブラリのどこにも存在しません。
+→ [docs/domain-model.md](docs/domain-model.md)
+
+## [2.0.0] - 2026-06-21
+
+> **遡及記載**: CHANGELOG 導入前のリリースをコミット履歴から再構成したものです。
+
+v1.1.0 で `[Obsolete]` にした型を一括削除し、外部依存をゼロにしたリリースです。
+
+### Removed
+
+削除した型はすべて v1.1.0 で `[Obsolete]` としていたものです。
+
+| 削除した型 | 移行先 |
+|---|---|
+| `ValueObjectBase` | `IValueObject` を直接実装する（`record` で実装し、検証は `Create` の中に書く） |
+| `ValidateHelper` | 例外を集約せず、`Create` やコンストラクターでガード節を書く |
+| `KeyedValidateHelper<TKey>` | 同上。UI 向けのエラー集約はアプリケーション層／プレゼンテーション層で行う |
+| `MultiReasonException` | 同上 |
+| `KeyedMultiReasonException<TKey>` | 同上 |
+| `IDomainServiceWithRes<TReq, TRes>` | `IDomainService<TReq, TRes>` |
+| `ICommandServiceWithRes<TReq, TRes>` | `ICommandService<TReq, TRes>` |
+| `IQueryServiceWithoutReq<TRes>` | `IQueryService<TRes>` |
+
+`WithRes` / `WithoutReq` の 3 つは、同名のジェネリック型にオーバーロードが用意されたことで
+不要になったものです。型名を差し替えるだけで移行できます。
+
+`ValueObjectBase` の `IsInvalidValue` は、この版では拡張メソッドとして
+`Extensions/ValueObjectExtensions.cs` に移されています。
+**ただしこの拡張自体も v2.0.1 で削除されました**（上記参照）。
+現在の方針は「生成時に検証し、不正なインスタンスを作らせない」です。
+
+### Changed
+
+- **外部依存をゼロにしました。** `Microsoft.Extensions.DependencyInjection.Abstractions` 8.0.0 への
+  `PackageReference` を削除しています。`TransactionManager` が必要とするのは
+  `System.IServiceProvider` だけなので公開 API は変わりませんが、
+  このパッケージが**推移的に流れてこなくなります**。
+  暗黙に依存していたプロジェクトは自分で `PackageReference` を追加してください。
+- `ISingleValueObject<TValue, TSelf>` のメンバー順を整理しました（API の変更はありません）。
+
+### Added
+
+- `ISingleValueObject<TValue>`。`Value` だけを持つ型引数 1 つ版で、
+  `static abstract` な `Create` / `Reconstruct` を要求しません。
+  「単一の値を包んでいる」ことだけを表明したい場合に使います。
+  従来の `ISingleValueObject<TValue, TSelf>` はそのまま残っています。
+- `OptionalExtensions`（`CreateSingleValueObject` / `ReconstructSingleValueObject` /
+  `Exchange` / `ExchangeValueObjectToPrimitive`）。
+  なお `Exchange` は v3.0.0 で `[Obsolete]` になり、`Map` / `Select` に置き換わっています。
+
+## [1.1.0] 以前
+
+CHANGELOG 導入前のため詳細な記録はありません。コミット履歴を参照してください。
+
+v1.1.0（2026-06-04）では .NET 10 に対応し、v2.0.0 で削除した型を `[Obsolete]` としています。
+`ValueObjectBase` の等価性の欠陥（継承先が異なる値オブジェクトどうしが等価になる）は
+この版で修正されました。同じ問題のエンティティ側の対応は v3.0.0 です。
+
+[3.0.0]: https://github.com/Uta-member/CSStack.TADA/compare/v2.0.2...HEAD
+[2.0.2]: https://github.com/Uta-member/CSStack.TADA/compare/v2.0.1...v2.0.2
+[2.0.1]: https://github.com/Uta-member/CSStack.TADA/compare/v2.0.0...v2.0.1
+[2.0.0]: https://github.com/Uta-member/CSStack.TADA/compare/v1.1.0...v2.0.0
+[1.1.0]: https://github.com/Uta-member/CSStack.TADA/releases/tag/v1.1.0

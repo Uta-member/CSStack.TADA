@@ -5,9 +5,14 @@ NuGet パッケージ名は `CSStack.TADA`、`net8.0;net10.0` のマルチター
 
 ## コーディング規約
 
+ルートの `.editorconfig` がこれらを機械的に強制する。規約を変えるときは
+`.editorconfig` と CLAUDE.md の両方を更新すること。
+
 - **インデント**: `src/` はタブ。`tests/` は半角スペース 4 つ（既存ファイルに合わせる）
 - **namespace はフラットに `CSStack.TADA`**。`Domain/` `UseCase/` などのフォルダ構成を
-  namespace に反映しない（`CSStack.TADA.Domain` と書かない）。テストは `CSStack.TADA.Tests`
+  namespace に反映しない（`CSStack.TADA.Domain` と書かない）。テストは `CSStack.TADA.Tests`。
+  利用者が `using CSStack.TADA;` だけで済むようにするための意図的な設計で、
+  `.editorconfig` の `dotnet_style_namespace_match_folder = false` に対応する
 - **ブロックスコープの namespace** を使う（`namespace X { ... }`）。file-scoped ではない
 - **`.cs` は UTF-8 BOM 付き**。`.md` は BOM なし
 - **すべての公開メンバーに XML doc が必須**（`GenerateDocumentationFile` が有効。警告ゼロを維持する）
@@ -47,21 +52,34 @@ dotnet test
 dotnet pack
 ```
 
-警告ゼロを維持すること。特に XML doc の破損（CS1570）はレビューで見落とされやすい。
+警告ゼロを維持すること。`Directory.Build.props` で `TreatWarningsAsErrors` を有効にしているため、
+XML doc の破損（CS1570 / CS1574）や記述漏れ（CS1591）は**ビルドエラーになる**。
+例外は `NU1902` / `NU1903`（依存パッケージの既知の脆弱性）で、これはこちらでは直せないため
+`WarningsNotAsErrors` で警告のままにしてある。
+
+push / PR では `.github/workflows/ci.yml` が同じことを CI で実行する。
+リリースは `v<version>` タグの push で `.github/workflows/release.yml` が pack と publish を行い、
+このときタグ名と `Directory.Build.props` の `<Version>` の一致が検証される。
 
 ## リポジトリ構成
 
 ```
-src/CSStack.TADA/     ライブラリ本体
-  Domain/             Entity / ValueObject / Repository / DomainService / AggregateService
-  UseCase/            TransactionService / CommandService / QueryService
-  Exceptions/         TADAException とその派生
-  Extensions/         OptionalExtensions
-  Utilities/          Optional
-tests/                テスト（xUnit）
-docs/                 ドキュメント
-.todo/                ローカル作業メモ（コミット対象外）
+.editorconfig             コーディング規約（インデント・BOM・namespace 方針・XML doc 診断）
+Directory.Build.props     Version / パッケージメタデータ / LangVersion / 警告設定
+.github/workflows/        CI（build + test）と Release（pack + NuGet publish）
+src/CSStack.TADA/         ライブラリ本体
+  Domain/                 Entity / ValueObject / Repository / DomainService / AggregateService
+  UseCase/                TransactionService / CommandService / QueryService
+  Exceptions/             TADAException とその派生
+  Extensions/             OptionalExtensions
+  Utilities/              Optional
+tests/                    テスト（xUnit）
+docs/                     ドキュメント
+.todo/                    ローカル作業メモ（コミット対象外）
 ```
+
+`.csproj` にバージョンやライセンスを書かない。パッケージ共通のメタデータは
+`Directory.Build.props` が唯一の定義箇所。
 
 ## 作業するときの注意
 
