@@ -1,20 +1,20 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    Version / Authors / PackageLicenseExpression / RepositoryUrl / LangVersion /
+    Nullable / ImplicitUsings / TreatWarningsAsErrors は
+    リポジトリルートの Directory.Build.props に集約されている。
+  -->
+
   <PropertyGroup>
     <TargetFrameworks>net8.0;net10.0;</TargetFrameworks>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <Title>Transaction-Aware Domain Architecture Toolkit</Title>
-    <Version>3.0.0</Version>
-    <Authors>Uta Sugane</Authors>
     <Description>A library of interfaces and classes useful for implementing Transaction-Aware Domain Architecture (TADA).</Description>
     <SignAssembly>False</SignAssembly>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <RepositoryUrl>https://github.com/Uta-member/CSStack.TADA</RepositoryUrl>
     <PackageTags>TADA;DDD;CSStack;</PackageTags>
     <PackageReleaseNotes>破壊的変更あり。TransactionManagerのDispose漏れ・rollbackの中断・commitの部分失敗を修正し、CancellationToken対応とdynamic除去を行った。Optional&lt;T&gt;をreadonly struct化してinitアクセサを削除し、等価性とMap/Match/LINQ対応を追加した。EntityBaseの等価性に実行時型の一致を追加し、==/!=の引数型を対称にした。詳細はCHANGELOG.mdを参照。</PackageReleaseNotes>
-    <PackageLicenseExpression> MIT</PackageLicenseExpression>
     <PackageIcon>CSStack.png</PackageIcon>
   </PropertyGroup>
 

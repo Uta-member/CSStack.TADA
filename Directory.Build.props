@@ -1,0 +1,37 @@
+<Project>
+
+  <!--
+    リポジトリ全体の共通プロパティ。
+    プロジェクト固有のもの（TargetFrameworks / Title / Description / PackageTags /
+    PackageReleaseNotes など）は各 .csproj 側に置く。
+    パッケージのバージョンはここが唯一の定義箇所。
+  -->
+
+  <PropertyGroup Label="ビルド">
+    <!--
+      static abstract メンバー（ISingleValueObject<TValue, TSelf> など）を使うため
+      C# 11 以上が必須。TFM ごとの既定に任せず明示する。
+    -->
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!--
+      警告ゼロを維持するため、警告はビルドエラーとして扱う。
+      NU1902 / NU1903（依存パッケージの既知の脆弱性）はこちらのコードでは直せず、
+      上流の更新待ちになるため除外する。警告としては表示され続ける。
+    -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors>NU1902;NU1903</WarningsNotAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup Label="パッケージ共通メタデータ">
+    <Version>3.0.0</Version>
+    <Authors>Uta Sugane</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/Uta-member/CSStack.TADA</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Uta-member/CSStack.TADA</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+</Project>
