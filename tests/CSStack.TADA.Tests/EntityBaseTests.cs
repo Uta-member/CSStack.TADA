@@ -157,7 +157,7 @@
         // --- null の扱い --------------------------------------------------------------------
 
         [Fact]
-        public void null_との比較は常に非等価()
+        public void Null_との比較は常に非等価()
         {
             var entity = new User("u1", "one");
             User? none = null;
@@ -170,7 +170,7 @@
         }
 
         [Fact]
-        public void null_どうしは等価()
+        public void Null_どうしは等価()
         {
             User? left = null;
             User? right = null;

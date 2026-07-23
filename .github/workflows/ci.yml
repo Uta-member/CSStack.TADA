@@ -34,6 +34,15 @@ jobs:
       - name: Restore
         run: dotnet restore
 
+      # .editorconfig の規約（インデント・改行コード・命名規則・using の並びなど）を
+      # 機械的に検証する。差分が出る＝規約違反なのでここで失敗させる。
+      # ローカルでは引数なしの `dotnet format` を実行すれば自動修正できる。
+      #
+      # 改行コードの検証が成立するのは .gitattributes の `* text=auto eol=crlf` により
+      # Linux のチェックアウトでも CRLF になるため。ここを LF に戻すと全ファイルが落ちる。
+      - name: Format check
+        run: dotnet format --verify-no-changes --no-restore
+
       - name: Build
         run: dotnet build --configuration Release --no-restore
 

@@ -30,7 +30,7 @@ namespace CSStack.TADA.Tests
         }
 
         [Fact]
-        public void default_と_引数なしコンストラクタ_と_Empty_はすべて等価()
+        public void Default_と_引数なしコンストラクタ_と_Empty_はすべて等価()
         {
             Assert.Equal(Optional<int>.Empty, default(Optional<int>));
             Assert.Equal(Optional<int>.Empty, new Optional<int>());
@@ -38,7 +38,7 @@ namespace CSStack.TADA.Tests
         }
 
         [Fact]
-        public void hasValue_に_false_を渡すと値は捨てられて_None_になる()
+        public void HasValue_に_false_を渡すと値は捨てられて_None_になる()
         {
             var optional = new Optional<int>(5, hasValue: false);
 
@@ -168,7 +168,7 @@ namespace CSStack.TADA.Tests
         }
 
         [Fact]
-        public void object_版_Equals_は異なる型の相手に_false_を返す()
+        public void Object_版_Equals_は異なる型の相手に_false_を返す()
         {
             Assert.False(Optional<int>.Some(42).Equals((object)42));
             Assert.False(Optional<int>.Some(42).Equals(null));
@@ -209,7 +209,7 @@ namespace CSStack.TADA.Tests
         }
 
         [Fact]
-        public void readonly_struct_である()
+        public void Readonly_struct_である()
         {
             var type = typeof(Optional<int>);
 

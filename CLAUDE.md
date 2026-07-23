@@ -52,6 +52,7 @@ NuGet パッケージ名は `CSStack.TADA`、`net8.0;net10.0` のマルチター
 ```
 dotnet build      # net8.0 と net10.0 の両方
 dotnet test
+dotnet format     # .editorconfig に沿って自動整形。CI は --verify-no-changes で検査する
 dotnet pack
 dotnet run --project samples/CSStack.TADA.Sample   # サンプルの動作確認
 ```
@@ -60,6 +61,10 @@ dotnet run --project samples/CSStack.TADA.Sample   # サンプルの動作確認
 XML doc の破損（CS1570 / CS1574）や記述漏れ（CS1591）は**ビルドエラーになる**。
 例外は `NU1902` / `NU1903`（依存パッケージの既知の脆弱性）で、これはこちらでは直せないため
 `WarningsNotAsErrors` で警告のままにしてある。
+
+**`dotnet format --verify-no-changes` も CI のゲート**になっている。インデント・改行コード
+（作業ツリーは CRLF。`.gitattributes` の `eol=crlf` により OS を問わずそうなる）・命名規則の
+違反はここで落ちるので、コミット前に `dotnet format` を通すこと。
 
 push / PR では `.github/workflows/ci.yml` が同じことを CI で実行する。
 リリースは `v<version>` タグの push で `.github/workflows/release.yml` が pack と publish を行い、
