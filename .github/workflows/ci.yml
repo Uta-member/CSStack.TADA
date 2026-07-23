@@ -1,0 +1,55 @@
+name: CI
+
+# push / pull request で net8.0 と net10.0 の両方をビルドしてテストする。
+# Directory.Build.props で TreatWarningsAsErrors を有効にしているため、
+# 警告が 1 件でも出れば（NU1902 / NU1903 を除き）ここで失敗する。
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build & test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          # net8.0 / net10.0 のマルチターゲットなので両方の SDK を入れる
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Test (net8.0)
+        run: dotnet test --configuration Release --no-build --framework net8.0 --logger "trx;LogFileName=net8.0.trx"
+
+      - name: Test (net10.0)
+        run: dotnet test --configuration Release --no-build --framework net10.0 --logger "trx;LogFileName=net10.0.trx"
+
+      - name: Pack (検証のみ)
+        run: dotnet pack src/CSStack.TADA/CSStack.TADA.csproj --configuration Release --no-build --output ./artifacts
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: "**/TestResults/*.trx"
+          if-no-files-found: ignore
