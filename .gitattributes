@@ -1,7 +1,16 @@
 ###############################################################################
 # Set default behavior to automatically normalize line endings.
+#
+# リポジトリ内には LF で格納し、チェックアウト時は OS を問わず CRLF に変換する。
+# .editorconfig の `end_of_line = crlf` を Windows のローカルでも Linux の CI でも
+# 成立させるための設定。コミット時に git が LF へ正規化するため差分は生じない。
+#
+# `eol=crlf` を付けずに `text=auto` だけにすると、チェックアウト結果が各環境の
+# core.autocrlf 任せになり Linux では LF になる。その状態では作業ツリーが
+# .editorconfig の crlf と食い違い、dotnet format が全ファイルに対して
+# ENDOFLINE エラーを出すため、eol を明示している。
 ###############################################################################
-* text=auto
+* text=auto eol=crlf
 
 ###############################################################################
 # Set default behavior for command prompt diff.

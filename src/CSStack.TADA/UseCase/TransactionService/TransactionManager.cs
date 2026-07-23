@@ -1,177 +1,366 @@
 ﻿using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.ExceptionServices;
 
 namespace CSStack.TADA
 {
 	/// <summary>
-	/// Transaction manager class.
+	/// Default <see cref="ITransactionManager"/> implementation, resolving
+	/// <see cref="ITransactionService{TSession}"/> from an <see cref="IServiceProvider"/>.
 	/// </summary>
-	public class TransactionManager : ITransactionManager
+	/// <remarks>
+	/// <para>
+	/// <b>Register this type with a scoped lifetime.</b> It keeps the sessions of the transaction currently
+	/// in flight in mutable state and is <b>not thread-safe</b>. A singleton registration makes concurrent
+	/// requests share — and corrupt — each other's sessions. A single instance must also not be driven from
+	/// several threads or from concurrent <c>Task</c>s at once.
+	/// </para>
+	/// <para>
+	/// <b>This instance owns the sessions.</b> Every session it begins is disposed after commit, after
+	/// rollback and on any error path. <see cref="ITransactionService{TSession}"/> implementations must not
+	/// dispose sessions themselves.
+	/// </para>
+	/// <para>
+	/// <b>Commits across multiple sessions are not atomic.</b> See <see cref="ITransactionManager"/>.
+	/// </para>
+	/// </remarks>
+	public sealed class TransactionManager : ITransactionManager
 	{
 		private readonly IServiceProvider _serviceProvider;
-		private readonly Dictionary<Type, dynamic> _sessions = new();
+
+		/// <summary>
+		/// Sessions that have begun, keyed by session type.
+		/// </summary>
+		private readonly Dictionary<Type, IDisposable> _sessions = new();
+
+		/// <summary>
+		/// The session types in the order they were begun. Commit follows this order, rollback and dispose reverse it.
+		/// </summary>
+		private readonly List<Type> _sessionOrder = new();
 
 		/// <summary>
 		/// Constructor
 		/// </summary>
-		/// <param name="serviceProvider"></param>
+		/// <param name="serviceProvider">The provider the <see cref="ITransactionService{TSession}"/> instances are resolved from</param>
 		public TransactionManager(IServiceProvider serviceProvider)
 		{
+			ArgumentNullException.ThrowIfNull(serviceProvider);
 			_serviceProvider = serviceProvider;
 		}
 
-		/// <summary>
-		/// Transaction sessions.
-		/// </summary>
-		public IReadOnlyDictionary<Type, dynamic> Sessions => _sessions;
-
-		/// <summary>
-		/// Begin a transaction.
-		/// </summary>
-		/// <typeparam name="TSession"></typeparam>
-		/// <returns></returns>
-		public async ValueTask BeginTransactionAsync<TSession>() where TSession : IDisposable
+		/// <inheritdoc/>
+		public ValueTask BeginTransactionAsync<TSession>(CancellationToken cancellationToken = default)
+			where TSession : IDisposable
 		{
-			if (_sessions.ContainsKey(typeof(TSession)))
-			{
-				return;
-			}
-			var transactionService = GetTransactionService<TSession>();
-			var session = await transactionService.BeginAsync();
-			_sessions.Add(typeof(TSession), session);
+			return BeginTransactionAsync(typeof(TSession), cancellationToken);
 		}
 
-		/// <summary>
-		/// Begin a transaction.
-		/// </summary>
-		/// <returns></returns>
-		public async ValueTask BeginTransactionAsync(Type sessionType)
+		/// <inheritdoc/>
+		public async ValueTask BeginTransactionAsync(Type sessionType, CancellationToken cancellationToken = default)
 		{
+			ArgumentNullException.ThrowIfNull(sessionType);
 			if (_sessions.ContainsKey(sessionType))
 			{
 				return;
 			}
-			var transactionService = GetTransactionServiceBySessionType(sessionType);
-			var session = await transactionService.BeginAsync();
+			var transactionService = GetTransactionService(sessionType);
+			var session = await transactionService.BeginAsync(cancellationToken).ConfigureAwait(false);
 			_sessions.Add(sessionType, session);
+			_sessionOrder.Add(sessionType);
 		}
 
-		/// <summary>
-		/// Begin multiple transactions.
-		/// </summary>
-		/// <param name="sessionTypes"></param>
-		/// <returns></returns>
-		public async ValueTask BeginTransactionsAsync(ImmutableList<Type> sessionTypes)
+		/// <inheritdoc/>
+		public async ValueTask BeginTransactionsAsync(
+			ImmutableList<Type> sessionTypes,
+			CancellationToken cancellationToken = default)
 		{
+			ArgumentNullException.ThrowIfNull(sessionTypes);
 			foreach (var sessionType in sessionTypes)
 			{
-				await BeginTransactionAsync(sessionType);
+				await BeginTransactionAsync(sessionType, cancellationToken).ConfigureAwait(false);
 			}
 		}
 
-		/// <summary>
-		/// Commit transactions.
-		/// </summary>
-		public async ValueTask CommitTransactionsAsync()
+		/// <inheritdoc/>
+		public async ValueTask CommitTransactionsAsync(CancellationToken cancellationToken = default)
 		{
-			foreach (var session in _sessions)
+			var sessions = SnapshotSessions();
+			var errors = new List<Exception>();
+
+			for (var i = 0; i < sessions.Count; i++)
 			{
-				var transactionService = GetTransactionServiceBySessionType(session.Key);
-				await transactionService.CommitAsync(session.Value);
+				try
+				{
+					var transactionService = GetTransactionService(sessions[i].Key);
+					await transactionService.CommitAsync(sessions[i].Value, cancellationToken).ConfigureAwait(false);
+				}
+				catch (Exception exception)
+				{
+					errors.Add(exception);
+
+					// The sessions committed before this one cannot be undone. Roll back the rest — including the
+					// one that just failed — in reverse order. The token is deliberately not forwarded: a cancelled
+					// token must not stop the cleanup.
+					var notCommitted = sessions.Skip(i).Reverse().ToList();
+					errors.AddRange(await RollbackCoreAsync(notCommitted, CancellationToken.None).ConfigureAwait(false));
+					break;
+				}
 			}
-			_sessions.Clear();
+
+			errors.AddRange(DisposeSessionsCore());
+			ThrowIfAny(errors, "Failed to commit the transactions.");
 		}
 
-		/// <summary>
-		/// Execute a transaction.
-		/// </summary>
-		/// <param name="sessionTypes"></param>
-		/// <param name="transactionFunction"></param>
-		/// <param name="beforeRollbackHandler"></param>
-		/// <returns></returns>
+		/// <inheritdoc/>
+		public async ValueTask RollbackTransactionsAsync(CancellationToken cancellationToken = default)
+		{
+			var sessions = SnapshotSessions();
+			sessions.Reverse();
+
+			var errors = await RollbackCoreAsync(sessions, cancellationToken).ConfigureAwait(false);
+			errors.AddRange(DisposeSessionsCore());
+			ThrowIfAny(errors, "Failed to roll back the transactions.");
+		}
+
+		/// <inheritdoc/>
 		public async ValueTask ExecuteTransactionAsync(
 			ImmutableList<Type> sessionTypes,
-			Func<TransactionSessions, ValueTask> transactionFunction,
-			Func<Exception, ValueTask>? beforeRollbackHandler = null)
+			Func<TransactionSessions, CancellationToken, ValueTask> transactionFunction,
+			Func<Exception, ValueTask>? beforeRollbackHandler = null,
+			CancellationToken cancellationToken = default)
 		{
+			ArgumentNullException.ThrowIfNull(sessionTypes);
+			ArgumentNullException.ThrowIfNull(transactionFunction);
+
 			try
 			{
-				await BeginTransactionsAsync(sessionTypes);
-				await transactionFunction.Invoke(new TransactionSessions(Sessions));
-				await CommitTransactionsAsync();
+				await BeginTransactionsAsync(sessionTypes, cancellationToken).ConfigureAwait(false);
+				await transactionFunction.Invoke(new TransactionSessions(_sessions), cancellationToken)
+					.ConfigureAwait(false);
+				await CommitTransactionsAsync(cancellationToken).ConfigureAwait(false);
 			}
-			catch (Exception ex)
+			catch (Exception exception)
 			{
-				if (beforeRollbackHandler != null)
+				var errors = new List<Exception> { exception };
+
+				if (beforeRollbackHandler is not null)
 				{
-					await beforeRollbackHandler.Invoke(ex);
+					try
+					{
+						await beforeRollbackHandler.Invoke(exception).ConfigureAwait(false);
+					}
+					catch (Exception handlerException)
+					{
+						// A failing handler must not prevent the rollback.
+						errors.Add(handlerException);
+					}
 				}
-				await RollbackTransactionsAsync();
-				throw;
+
+				try
+				{
+					// Not forwarding the token: a cancelled operation must still be rolled back.
+					// A no-op when the failure came from CommitTransactionsAsync, which already cleaned up.
+					await RollbackTransactionsAsync(CancellationToken.None).ConfigureAwait(false);
+				}
+				catch (Exception rollbackException)
+				{
+					errors.Add(rollbackException);
+				}
+
+				if (errors.Count == 1)
+				{
+					throw;
+				}
+				throw new AggregateException(
+					"The transaction failed and the recovery also failed. The first inner exception is the original failure.",
+					errors);
 			}
 			finally
 			{
-				_sessions.Clear();
+				// Safety net for paths that reached neither commit nor rollback.
+				DisposeSessionsCore();
 			}
 		}
 
-		/// <summary>
-		/// Get transaction session factor.
-		/// </summary>
-		/// <typeparam name="TSession"></typeparam>
-		/// <returns></returns>
+		/// <inheritdoc/>
+		public ValueTask ExecuteTransactionAsync<TSession1>(
+			Func<TransactionSessions, CancellationToken, ValueTask> transactionFunction,
+			Func<Exception, ValueTask>? beforeRollbackHandler = null,
+			CancellationToken cancellationToken = default)
+			where TSession1 : IDisposable
+		{
+			return ExecuteTransactionAsync(
+				ImmutableList.Create(typeof(TSession1)),
+				transactionFunction,
+				beforeRollbackHandler,
+				cancellationToken);
+		}
+
+		/// <inheritdoc/>
+		public ValueTask ExecuteTransactionAsync<TSession1, TSession2>(
+			Func<TransactionSessions, CancellationToken, ValueTask> transactionFunction,
+			Func<Exception, ValueTask>? beforeRollbackHandler = null,
+			CancellationToken cancellationToken = default)
+			where TSession1 : IDisposable
+			where TSession2 : IDisposable
+		{
+			return ExecuteTransactionAsync(
+				ImmutableList.Create(typeof(TSession1), typeof(TSession2)),
+				transactionFunction,
+				beforeRollbackHandler,
+				cancellationToken);
+		}
+
+		/// <inheritdoc/>
+		public ValueTask ExecuteTransactionAsync<TSession1, TSession2, TSession3>(
+			Func<TransactionSessions, CancellationToken, ValueTask> transactionFunction,
+			Func<Exception, ValueTask>? beforeRollbackHandler = null,
+			CancellationToken cancellationToken = default)
+			where TSession1 : IDisposable
+			where TSession2 : IDisposable
+			where TSession3 : IDisposable
+		{
+			return ExecuteTransactionAsync(
+				ImmutableList.Create(typeof(TSession1), typeof(TSession2), typeof(TSession3)),
+				transactionFunction,
+				beforeRollbackHandler,
+				cancellationToken);
+		}
+
+		/// <inheritdoc/>
 		public TSession GetSession<TSession>() where TSession : IDisposable
 		{
-			return (TSession)_sessions[typeof(TSession)];
+			return (TSession)GetSession(typeof(TSession));
 		}
 
-		/// <summary>
-		/// Get transaction session factor.
-		/// </summary>
-		/// <param name="sessionType"></param>
-		/// <returns></returns>
-		public object GetSession(Type sessionType)
+		/// <inheritdoc/>
+		public IDisposable GetSession(Type sessionType)
 		{
-			return _sessions[sessionType];
+			ArgumentNullException.ThrowIfNull(sessionType);
+			if (!_sessions.TryGetValue(sessionType, out var session))
+			{
+				throw new TransactionSessionNotFoundException(sessionType);
+			}
+			return session;
 		}
 
-		/// <summary>
-		/// Get transaction provider service
-		/// </summary>
-		/// <typeparam name="TSession"></typeparam>
-		/// <returns></returns>
-		/// <exception cref="InvalidOperationException"></exception>
+		/// <inheritdoc/>
+		public bool TryGetSession<TSession>([MaybeNullWhen(false)] out TSession session) where TSession : IDisposable
+		{
+			if (_sessions.TryGetValue(typeof(TSession), out var value) && value is TSession typedSession)
+			{
+				session = typedSession;
+				return true;
+			}
+			session = default;
+			return false;
+		}
+
+		/// <inheritdoc/>
 		public ITransactionService<TSession> GetTransactionService<TSession>() where TSession : IDisposable
 		{
-			var service = _serviceProvider.GetService(typeof(ITransactionService<>).MakeGenericType(typeof(TSession)));
-			if (service == null)
+			return (ITransactionService<TSession>)GetTransactionService(typeof(TSession));
+		}
+
+		/// <inheritdoc/>
+		public ITransactionService GetTransactionService(Type sessionType)
+		{
+			ArgumentNullException.ThrowIfNull(sessionType);
+			if (!typeof(IDisposable).IsAssignableFrom(sessionType))
 			{
-				throw new InvalidOperationException($"No service found for {typeof(TSession).Name}");
+				throw new ArgumentException(
+					$"The session type '{sessionType.FullName}' must implement {nameof(IDisposable)}.",
+					nameof(sessionType));
 			}
-			return (ITransactionService<TSession>)service;
+
+			var serviceType = typeof(ITransactionService<>).MakeGenericType(sessionType);
+			var service = _serviceProvider.GetService(serviceType);
+			if (service is null)
+			{
+				throw new InvalidOperationException(
+					$"No transaction service is registered for the session type '{sessionType.FullName}'. "
+					+ $"Register ITransactionService<{sessionType.Name}> with the service provider.");
+			}
+			return (ITransactionService)service;
 		}
 
 		/// <summary>
-		/// Rollback transactions.
+		/// The sessions that have begun, in the order they were begun.
 		/// </summary>
-		public async ValueTask RollbackTransactionsAsync()
+		private List<KeyValuePair<Type, IDisposable>> SnapshotSessions()
 		{
-			foreach (var session in _sessions)
+			var snapshot = new List<KeyValuePair<Type, IDisposable>>(_sessionOrder.Count);
+			foreach (var sessionType in _sessionOrder)
 			{
-				var transactionService = GetTransactionServiceBySessionType(session.Key);
-				await transactionService.RollbackAsync(session.Value);
+				snapshot.Add(new KeyValuePair<Type, IDisposable>(sessionType, _sessions[sessionType]));
 			}
-			_sessions.Clear();
+			return snapshot;
 		}
 
-		private dynamic GetTransactionServiceBySessionType(Type sessionType)
+		/// <summary>
+		/// Roll back every given session. One failure never stops the others; all failures are returned.
+		/// </summary>
+		private async ValueTask<List<Exception>> RollbackCoreAsync(
+			IReadOnlyList<KeyValuePair<Type, IDisposable>> sessions,
+			CancellationToken cancellationToken)
 		{
-			var serviceType = typeof(ITransactionService<>).MakeGenericType(sessionType);
-			var service = _serviceProvider.GetService(serviceType);
-			if (service == null)
+			var exceptions = new List<Exception>();
+			foreach (var session in sessions)
 			{
-				throw new InvalidOperationException($"No service found for {sessionType.Name}");
+				try
+				{
+					var transactionService = GetTransactionService(session.Key);
+					await transactionService.RollbackAsync(session.Value, cancellationToken).ConfigureAwait(false);
+				}
+				catch (Exception exception)
+				{
+					exceptions.Add(exception);
+				}
 			}
-			return service;
+			return exceptions;
+		}
+
+		/// <summary>
+		/// Dispose every session held, in reverse order of begin, and forget them all.
+		/// Always empties the state, even when a <see cref="IDisposable.Dispose"/> throws.
+		/// </summary>
+		private List<Exception> DisposeSessionsCore()
+		{
+			var exceptions = new List<Exception>();
+			for (var i = _sessionOrder.Count - 1; i >= 0; i--)
+			{
+				if (!_sessions.TryGetValue(_sessionOrder[i], out var session))
+				{
+					continue;
+				}
+				try
+				{
+					session.Dispose();
+				}
+				catch (Exception exception)
+				{
+					exceptions.Add(exception);
+				}
+			}
+			_sessions.Clear();
+			_sessionOrder.Clear();
+			return exceptions;
+		}
+
+		/// <summary>
+		/// Rethrow a lone failure as-is, or bundle several into an <see cref="AggregateException"/>.
+		/// </summary>
+		private static void ThrowIfAny(List<Exception> exceptions, string message)
+		{
+			if (exceptions.Count == 0)
+			{
+				return;
+			}
+			if (exceptions.Count == 1)
+			{
+				ExceptionDispatchInfo.Capture(exceptions[0]).Throw();
+			}
+			throw new AggregateException(message, exceptions);
 		}
 	}
 }

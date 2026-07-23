@@ -7,9 +7,9 @@
 	/// Constructor
 	/// </remarks>
 	/// <param name="message">Message</param>
-	/// <param name="innserException">Inner exception</param>
-	public class DomainInvalidOperationException(string? message = null, Exception? innserException = null)
-		: TADAException(message, innserException)
+	/// <param name="innerException">Inner exception</param>
+	public class DomainInvalidOperationException(string? message = null, Exception? innerException = null)
+		: TADAException(message, innerException)
 	{
 	}
 }
