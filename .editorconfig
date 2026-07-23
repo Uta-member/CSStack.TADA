@@ -203,11 +203,20 @@ dotnet_diagnostic.CS1711.severity = warning
 dotnet_diagnostic.CS1712.severity = warning
 
 ###############################################################################
-# テストコード
+# テストコード・サンプルコード
 #
 # tests/ は既存ファイルに合わせてスペース 4。src/ のタブとは意図的に別。
+# samples/ も同じスペース 4。ライブラリ本体ではなく「利用者が書くコード」の
+# 見本であり、本体のタブ規約を利用者に押しつけないため。
 ###############################################################################
 
 [tests/**.cs]
 indent_style = space
 indent_size = 4
+
+[samples/**.cs]
+indent_style = space
+indent_size = 4
+
+# サンプルは名前空間 CSStack.TADA.Sample を使う（本体のフラット namespace 規約の
+# 対象外）。フォルダ構成もレイヤーを示すためにあり、namespace には反映しない。

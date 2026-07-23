@@ -202,13 +202,44 @@
   `docs/domain-model.md` のサンプルも名前付き引数に改めています。
 - `docs/domain-model.md` に `ObjectNotFoundException` / `ObjectAlreadyExistException` へ
   対象型と識別子を渡す節を追加しました。
+- **`README.md` を全面改稿しました。** これまで README には**コード例が 1 つもなく**、
+  NuGet パッケージ名もインストール手順も書かれていませんでした。現在は英日それぞれに
+  インストール手順 / **貼り付ければ動く 8 ステップの最小例**（セッション定義 → 値オブジェクト →
+  エンティティ → リポジトリ → トランザクションサービス → コマンドサービス → DI 登録 → 実行）/
+  レイヤー構成図 / **公開型 34 個すべての 1 行説明** / 必ず踏む地雷 8 項目 / `docs/` への導線が
+  揃っています。
+- **`docs/architecture.md` を追加**。TADA の設計思想:
+  トランザクションの範囲の表し方が 3 通りあり、暗黙の文脈（`TransactionScope`）と
+  リポジトリがセッションを握る方式のそれぞれが何を壊すか / **なぜ `TSession` を
+  全レイヤーに引き回すのか**とその代償 / レイヤー構成と `src/` のフォルダとの対応 /
+  セッション伝播モデル / DDD・クリーンアーキテクチャとの差分 4 点 /
+  セッション型がドメイン層から見えることの是非とプロジェクト分割時の選択肢。
+- **`docs/getting-started.md` を追加**。インストールから動くまでを 7 ステップに分解。
+  **DI 登録（`ITransactionService<TSession>` の登録と `TransactionManager` の Scoped 必須）**を
+  独立した章に置き、落とすと必ず落ちる 2 つを明示しています。症状から原因を引く表つき。
+- **`docs/best-practices.md` を追加**。放置すると必ず踏む規約 10 件を危険度順に、
+  「間違い → 正しい形 → なぜ」の形で集約しました。将来 skill 化する際の参照先を想定しています。
+- **`docs/api-reference.md` を追加**。公開型 34 個すべてと、型引数
+  （`TEntity` / `TEntityIdentifier` / `TOperateInfo` / `TSession` / `TRepository` /
+  `TReq` / `TRes` / `TSelf`）の意味を一覧化しました。
+- **`docs/migration.md` を追加**。v2.x → v3.0.0 と v1.x → v2.0.x の移行手順。
+  コンパイルエラーになるものと、**コンパイルが通るのに挙動が変わるもの**
+  （エンティティの等価性、`Optional<T>` の等価性、Mapster、ロールバックの挙動）を
+  分けて記載しています。
+- **`samples/CSStack.TADA.Sample/` を追加**。エンドツーエンドで動く最小のサンプルで、
+  外部ミドルウェアを必要としません。値オブジェクト / エンティティ / リポジトリ /
+  集約サービス / ドメインサービス / コマンドサービス / クエリサービス /
+  トランザクションサービス / DI 登録がひととおり揃っており、
+  ロールバックとセッションの所有権を実際に出力して見せます。
+  `CSStack.TADA.sln` に含め、**CI がビルドと実行まで行う**ので、
+  API を変えたままサンプルが古くなると CI が落ちます。
 
 ### Repository / ビルド
 
 パッケージのライセンス表記以外は利用者から見える変更ではありませんが、リポジトリ側の整備です。
 
 - **`PackageLicenseExpression` の値が `" MIT"`（先頭に半角スペース）になっていたのを修正しました。**
-- `.editorconfig` を追加しました。`src/` はタブ・`tests/` はスペース 4、`.cs` は UTF-8 BOM 付き、
+- `.editorconfig` を追加しました。`src/` はタブ・`tests/` と `samples/` はスペース 4、`.cs` は UTF-8 BOM 付き、
   namespace はフォルダ構成を反映せずフラット（`dotnet_style_namespace_match_folder = false`）、
   ブロックスコープの namespace、という既存の規約を機械的に強制します。
 - `Directory.Build.props` を追加し、`Version` / `Authors` / ライセンス / リポジトリ URL と
@@ -217,7 +248,7 @@
   記述漏れ（CS1591）でビルドが失敗します（コード側で直せない NU1902 / NU1903 は除外）。
 - GitHub Actions を追加しました。push / PR で net8.0・net10.0 の両方をビルドしてテストし
   （`.github/workflows/ci.yml`）、`v*` タグの push で pack して NuGet に publish します
-  （`.github/workflows/release.yml`）。
+  （`.github/workflows/release.yml`）。CI は `samples/` のビルドと実行も行います。
 - `src/CSStack.TADA/UseCase/UseCase/` の二重フォルダを `src/CSStack.TADA/UseCase/` に解消しました。
   namespace はすべて `CSStack.TADA` でフラットなため API に影響はありません。
 

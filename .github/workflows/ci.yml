@@ -43,6 +43,11 @@ jobs:
       - name: Test (net10.0)
         run: dotnet test --configuration Release --no-build --framework net10.0 --logger "trx;LogFileName=net10.0.trx"
 
+      # サンプルはビルドだけでなく実行まで確認する。
+      # docs/ から参照する「動く例」なので、動かなくなったらここで落ちてほしい。
+      - name: Run sample
+        run: dotnet run --project samples/CSStack.TADA.Sample --configuration Release --no-build
+
       - name: Pack (検証のみ)
         run: dotnet pack src/CSStack.TADA/CSStack.TADA.csproj --configuration Release --no-build --output ./artifacts
 

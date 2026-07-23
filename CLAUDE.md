@@ -8,9 +8,10 @@ NuGet パッケージ名は `CSStack.TADA`、`net8.0;net10.0` のマルチター
 ルートの `.editorconfig` がこれらを機械的に強制する。規約を変えるときは
 `.editorconfig` と CLAUDE.md の両方を更新すること。
 
-- **インデント**: `src/` はタブ。`tests/` は半角スペース 4 つ（既存ファイルに合わせる）
+- **インデント**: `src/` はタブ。`tests/` と `samples/` は半角スペース 4 つ（既存ファイルに合わせる）
 - **namespace はフラットに `CSStack.TADA`**。`Domain/` `UseCase/` などのフォルダ構成を
-  namespace に反映しない（`CSStack.TADA.Domain` と書かない）。テストは `CSStack.TADA.Tests`。
+  namespace に反映しない（`CSStack.TADA.Domain` と書かない）。テストは `CSStack.TADA.Tests`、
+  サンプルは `CSStack.TADA.Sample`。
   利用者が `using CSStack.TADA;` だけで済むようにするための意図的な設計で、
   `.editorconfig` の `dotnet_style_namespace_match_folder = false` に対応する
 - **ブロックスコープの namespace** を使う（`namespace X { ... }`）。file-scoped ではない
@@ -29,6 +30,7 @@ NuGet パッケージ名は `CSStack.TADA`、`net8.0;net10.0` のマルチター
 2. **セッションの所有権は `ITransactionManager` にある。** commit / rollback / 例外の
    いずれの経路でも `ITransactionManager` が `Dispose` する。
    `ITransactionService<TSession>` の実装側で `Dispose` してはいけない
+   → [docs/best-practices.md](docs/best-practices.md)
 3. **`TransactionManager` は Scoped で登録する。** スレッドセーフではなく、実行中の
    セッションを保持するため、Singleton にすると全リクエストで混線する
 4. **複数セッションの commit はアトミックではない。** 2 相コミットではないので、
@@ -41,6 +43,7 @@ NuGet パッケージ名は `CSStack.TADA`、`net8.0;net10.0` のマルチター
 7. **トランザクションの境界は `ICommandService`。** `ITransactionManager` を注入して
    `ExecuteTransactionAsync` で包み、セッションを下の層へ渡す。それより下の層は
    トランザクションを開始しない → [docs/use-case.md](docs/use-case.md)
+   なぜセッションを引き回すのかは → [docs/architecture.md](docs/architecture.md)
 8. **`ObjectNotFoundException` を投げるのはリポジトリではない。** 不在は
    `Optional<T>.Empty` で返り、それを異常とみなすかは集約サービス / ユースケースが決める
 
@@ -50,6 +53,7 @@ NuGet パッケージ名は `CSStack.TADA`、`net8.0;net10.0` のマルチター
 dotnet build      # net8.0 と net10.0 の両方
 dotnet test
 dotnet pack
+dotnet run --project samples/CSStack.TADA.Sample   # サンプルの動作確認
 ```
 
 警告ゼロを維持すること。`Directory.Build.props` で `TreatWarningsAsErrors` を有効にしているため、
@@ -74,9 +78,21 @@ src/CSStack.TADA/         ライブラリ本体
   Extensions/             OptionalExtensions
   Utilities/              Optional
 tests/                    テスト（xUnit）
+samples/CSStack.TADA.Sample/  エンドツーエンドの動くサンプル（CI でビルド＋実行）
 docs/                     ドキュメント
+  architecture.md         設計思想。なぜ TSession を引き回すのか
+  getting-started.md      ゼロから動かすまでの 7 ステップ（DI 登録を含む）
+  best-practices.md       規約の一覧。間違い → 正しい形 → なぜ
+  api-reference.md        公開型 34 個と型引数の意味
+  domain-model.md         エンティティ / 値オブジェクト / リポジトリ / 集約
+  use-case.md             3 種のサービスとトランザクションの境界
+  optional.md             Optional<T> の三状態
+  migration.md            v1 → v2 → v3 の移行手順
 .todo/                    ローカル作業メモ（コミット対象外）
 ```
+
+サンプルは `CSStack.TADA.sln` に含まれ、CI がビルドと**実行**まで行う。
+`docs/` から参照する動くコードはここに置くと腐らない。
 
 `.csproj` にバージョンやライセンスを書かない。パッケージ共通のメタデータは
 `Directory.Build.props` が唯一の定義箇所。
