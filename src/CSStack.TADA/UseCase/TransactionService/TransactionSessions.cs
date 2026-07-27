@@ -8,7 +8,9 @@ namespace CSStack.TADA
 	/// </summary>
 	/// <remarks>
 	/// Valid only for the duration of the call it was handed to. The sessions are owned and disposed by
-	/// <see cref="ITransactionManager"/>, so this object must not be captured and used afterwards.
+	/// <see cref="ITransactionManager"/>, so this object must not be captured and used afterwards: it is a
+	/// snapshot taken when the call started, and it keeps naming the sessions after they have been committed
+	/// and disposed.
 	/// </remarks>
 	public sealed class TransactionSessions
 	{

@@ -1,6 +1,6 @@
 # API リファレンス
 
-公開型は **34 個**。すべてフラットな `CSStack.TADA` namespace にあるので、
+公開型は **35 個**。すべてフラットな `CSStack.TADA` namespace にあるので、
 `using CSStack.TADA;` の 1 行で全部使える。
 
 このページは「どの型が何のためにあるか」と「型引数の意味」の索引。
@@ -26,7 +26,7 @@
 | クエリサービス | [`IQueryService<TReq, TRes>`](#iqueryservicetreq-tres) / [`IQueryService<TRes>`](#iqueryservicetres) / [`IQueryServiceDTO`](#iqueryservicedto) |
 | トランザクション | [`ITransactionManager`](#itransactionmanager) / [`TransactionManager`](#transactionmanager) / [`TransactionSessions`](#transactionsessions) / [`ITransactionService`](#itransactionservice) / [`ITransactionService<TSession>`](#itransactionservicetsession) |
 | ユーティリティ | [`Optional<TValue>`](#optionaltvalue) / [`OptionalExtensions`](#optionalextensions) |
-| 例外 | [`TADAException`](#tadaexception) 以下 8 個（[例外](#例外)） |
+| 例外 | [`TADAException`](#tadaexception) 以下 9 個（[例外](#例外)） |
 
 ---
 
@@ -333,20 +333,32 @@ ValueTask ExecuteTransactionAsync(
 | `ExecuteTransactionAsync<TSession1>` 〜 `<TSession1, TSession2, TSession3>` | begin → 本体 → commit を一括で行う。**通常はこれ** |
 | `ExecuteTransactionAsync(ImmutableList<Type>, ...)` | セッション型が 4 個以上、または実行時に決まる場合 |
 | `BeginTransactionAsync<TSession>()` / `BeginTransactionAsync(Type)` | 個別に開始。開始済みなら何もしない |
-| `BeginTransactionsAsync(ImmutableList<Type>)` | 複数をまとめて開始 |
+| `BeginTransactionsAsync(ImmutableList<Type>)` | 複数をまとめて開始。途中で失敗したら開始済みを rollback + dispose して再スロー |
 | `CommitTransactionsAsync()` | 開始順に commit し、全部 dispose する |
 | `RollbackTransactionsAsync()` | 逆順に rollback し、全部 dispose する |
 | `GetSession<TSession>()` / `GetSession(Type)` | 開始済みセッションを取得。無ければ `TransactionSessionNotFoundException` |
 | `TryGetSession<TSession>(out TSession)` | 例外を投げない版 |
 | `GetTransactionService<TSession>()` / `GetTransactionService(Type)` | 登録済みの `ITransactionService` を取得 |
 
-`beforeRollbackHandler` はロールバック**前**に呼ばれる。まだデータがセッションから
-見える状態で観測できるのが目的なので、診断情報の採取に使う。
+`beforeRollbackHandler` は失敗したときに呼ばれる。診断情報の採取に使う。
 ここで例外を投げてもロールバックは止まらない（例外は元の失敗と一緒に報告される）。
-本体が成功して commit が失敗したときにも呼ばれる。
+
+**呼ばれる位置は「何が失敗したか」で変わる。**
+
+| 失敗した場所 | 呼ばれる位置 | ハンドラから見たセッション |
+|---|---|---|
+| 本体（`transactionFunction`）／ begin | ロールバック**前** | まだ生きている。データを観測できる |
+| commit | ロールバック**後** | **既に `Dispose` 済み** |
+
+commit 失敗の経路が後になるのは、`CommitTransactionsAsync` が内部でロールバックと
+`Dispose` を済ませてから throw するため。**セッションを触る診断コードは、
+この経路では Dispose 済みであることを前提に書く**（そこで出た例外も
+元の失敗と一緒に報告されるので握り潰されはしない）。
 
 **契約:**
 
+- **入れ子にできない。** 実行中の本体（または `beforeRollbackHandler`）から同じマネージャーの
+  `ExecuteTransactionAsync` を呼ぶと `NestedTransactionException`。連続して呼ぶのは正当
 - **セッションの所有権はマネージャーにある。** commit 後・rollback 後・例外時の
   いずれの経路でも `Dispose` する
 - **複数セッションの commit はアトミックではない。** 2 相コミットではない
@@ -379,10 +391,13 @@ IReadOnlyDictionary<Type, IDisposable> Sessions { get; }
 ```
 
 **渡された呼び出しの中でのみ有効。** セッションはマネージャーが `Dispose` するので、
-このオブジェクトをキャプチャして後で使ってはいけない。
+このオブジェクトをキャプチャして後で使ってはいけない。呼び出し開始時点の**コピー**なので、
+commit 後も同じセッションを指し続ける（＝ Dispose 済みのセッションを返す）。
 
 `ExecuteTransactionAsync` に渡していないセッション型を要求すると
-`TransactionSessionNotFoundException`。
+`TransactionSessionNotFoundException`。本体の中で
+`ITransactionManager.BeginTransactionAsync<TOther>()` を呼んで別のセッションを開始しても、
+この集合からは取得できない（マネージャー側の `GetSession<TOther>()` からは取得できる）。
 
 ### `ITransactionService`
 
@@ -469,6 +484,7 @@ services.AddScoped<ITransactionService<AppSession>, AppTransactionService>();
 Exception
 └─ TADAException
    ├─ DomainInvalidOperationException
+   ├─ NestedTransactionException
    ├─ ObjectNotFoundException
    ├─ ObjectAlreadyExistException
    ├─ TransactionSessionNotFoundException
@@ -546,6 +562,20 @@ throw new ValueObjectLengthException(
 
 原因はほぼ常に、`ExecuteTransactionAsync<...>` の型引数にそのセッション型を
 渡していないこと。
+
+### `NestedTransactionException`
+
+**実行中のトランザクションの中から、同じマネージャーでトランザクションを開始した。**
+
+`ITransactionManager` は Scoped 登録なので、コマンドサービスが別のコマンドサービスを
+呼ぶと同一インスタンスに行き着く。セッションはマネージャー単位で保持していて
+「どの `ExecuteTransactionAsync` が開始したか」を区別しないため、内側の commit が
+外側のセッションまで確定・`Dispose` してしまう。それを防ぐために**入れ子を禁止**している。
+
+**直し方:** 共通処理をドメインサービス／集約サービスに切り出し、
+同じ `ExecuteTransactionAsync` の本体からセッションを渡して呼ぶ。
+
+→ [best-practices.md](best-practices.md#5-トランザクションを開始してよいのは-icommandservice-だけ)
 
 → [domain-model.md](domain-model.md#例外を投げる層)
 

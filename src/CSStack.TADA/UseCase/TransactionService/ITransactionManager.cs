@@ -24,6 +24,15 @@ namespace CSStack.TADA
 	/// not thread-safe. Register them with a <i>scoped</i> lifetime — a singleton registration mixes
 	/// sessions across concurrent requests.
 	/// </para>
+	/// <para>
+	/// <b>Transactions must not be nested.</b> The sessions in flight are held per manager, not per
+	/// <see cref="ExecuteTransactionAsync(ImmutableList{Type}, Func{TransactionSessions, CancellationToken, ValueTask}, Func{Exception, ValueTask}, CancellationToken)"/>
+	/// call, so an inner call would commit and dispose the outer transaction's sessions while the outer body
+	/// is still running. It throws <see cref="NestedTransactionException"/> instead. Because the manager is
+	/// scoped, a command service calling another command service hits exactly this. Extract the shared work
+	/// into a domain service or an aggregate service and call it from the body of the same transaction.
+	/// Consecutive (non-nested) transactions on the same instance are fine.
+	/// </para>
 	/// </remarks>
 	public interface ITransactionManager
 	{
@@ -34,6 +43,12 @@ namespace CSStack.TADA
 		/// <param name="cancellationToken">Cancellation token</param>
 		/// <returns>A task that completes once the session has begun and is retrievable with
 		/// <see cref="GetSession{TSession}"/></returns>
+		/// <remarks>
+		/// A failure here leaves the sessions begun by earlier calls open. When driving the manager by hand
+		/// rather than through
+		/// <see cref="ExecuteTransactionAsync(ImmutableList{Type}, Func{TransactionSessions, CancellationToken, ValueTask}, Func{Exception, ValueTask}, CancellationToken)"/>,
+		/// clean them up with <see cref="RollbackTransactionsAsync"/>.
+		/// </remarks>
 		/// <exception cref="InvalidOperationException">
 		/// No <see cref="ITransactionService{TSession}"/> is registered for <typeparamref name="TSession"/>.
 		/// </exception>
@@ -47,6 +62,12 @@ namespace CSStack.TADA
 		/// <param name="cancellationToken">Cancellation token</param>
 		/// <returns>A task that completes once the session has begun and is retrievable with
 		/// <see cref="GetSession(Type)"/></returns>
+		/// <remarks>
+		/// A failure here leaves the sessions begun by earlier calls open. When driving the manager by hand
+		/// rather than through
+		/// <see cref="ExecuteTransactionAsync(ImmutableList{Type}, Func{TransactionSessions, CancellationToken, ValueTask}, Func{Exception, ValueTask}, CancellationToken)"/>,
+		/// clean them up with <see cref="RollbackTransactionsAsync"/>.
+		/// </remarks>
 		/// <exception cref="ArgumentException"><paramref name="sessionType"/> does not implement <see cref="IDisposable"/>.</exception>
 		/// <exception cref="InvalidOperationException">
 		/// No <see cref="ITransactionService{TSession}"/> is registered for <paramref name="sessionType"/>.
@@ -59,6 +80,16 @@ namespace CSStack.TADA
 		/// <param name="sessionTypes">Session types. Each must implement <see cref="IDisposable"/>.</param>
 		/// <param name="cancellationToken">Cancellation token</param>
 		/// <returns>A task that completes once every session has begun</returns>
+		/// <remarks>
+		/// When one of them fails to begin, the sessions already begun — including those begun before this
+		/// call — are rolled back and disposed before the failure is rethrown, so nothing is left open
+		/// (the rollback is never cancelled, even when <paramref name="cancellationToken"/> is already
+		/// cancelled).
+		/// </remarks>
+		/// <exception cref="AggregateException">
+		/// A session failed to begin <i>and</i> the rollback failed as well. The begin failure is the first
+		/// inner exception. When only the begin failed it is rethrown as-is.
+		/// </exception>
 		ValueTask BeginTransactionsAsync(ImmutableList<Type> sessionTypes, CancellationToken cancellationToken = default);
 
 		/// <summary>
@@ -97,9 +128,11 @@ namespace CSStack.TADA
 		/// Rolls back and rethrows when anything fails.
 		/// </summary>
 		/// <param name="sessionTypes">
-		/// Session types to begin, in this order. Each must implement <see cref="IDisposable"/>. Only the
-		/// sessions named here can be retrieved inside <paramref name="transactionFunction"/>; asking for any
-		/// other one throws <see cref="TransactionSessionNotFoundException"/>.
+		/// Session types to begin, in this order. Each must implement <see cref="IDisposable"/>. The
+		/// <see cref="TransactionSessions"/> handed to <paramref name="transactionFunction"/> is a snapshot
+		/// taken once these have begun, so asking it for a session that is not among them throws
+		/// <see cref="TransactionSessionNotFoundException"/> — that stays true even when the body begins
+		/// another session through the manager afterwards.
 		/// </param>
 		/// <param name="transactionFunction">
 		/// The body of the transaction. It receives the sessions that were begun and the cancellation token.
@@ -108,12 +141,19 @@ namespace CSStack.TADA
 		/// itself.
 		/// </param>
 		/// <param name="beforeRollbackHandler">
-		/// Invoked with the failure <i>before</i> the rollback is attempted, so it observes the transaction
-		/// while the data is still visible to the sessions — that is the point of it running first. Use it to
-		/// capture diagnostics; do not use it to undo work, and note the transaction is about to be rolled
-		/// back regardless of what it does. A handler that throws does <b>not</b> prevent the rollback: its
-		/// exception is collected and reported alongside the original failure. It also runs when the body
-		/// succeeded and the commit failed.
+		/// Invoked with the failure. Use it to capture diagnostics; do not use it to undo work, and note the
+		/// transaction is about to be rolled back — or has already been rolled back — regardless of what it
+		/// does. A handler that throws does <b>not</b> prevent the rollback: its exception is collected and
+		/// reported alongside the original failure.
+		/// <para>
+		/// <b>When it runs depends on what failed.</b> When the failure came from
+		/// <paramref name="transactionFunction"/> (or from beginning the sessions), it runs <i>before</i> the
+		/// rollback, so it can still observe the transaction through the sessions. When the body succeeded
+		/// and the <b>commit</b> failed, it runs <i>after</i> the rollback, because
+		/// <see cref="CommitTransactionsAsync"/> rolls back and disposes the sessions itself before it
+		/// throws — the sessions are already disposed by then, so a handler that touches them must be
+		/// prepared for that.
+		/// </para>
 		/// </param>
 		/// <param name="cancellationToken">Cancellation token</param>
 		/// <returns>A task that completes once the body has run and every session has been committed</returns>
@@ -121,7 +161,15 @@ namespace CSStack.TADA
 		/// The rollback is always attempted with an uncancelled token, so cancelling
 		/// <paramref name="cancellationToken"/> does not leave transactions open.
 		/// Sessions are disposed on every path.
+		/// <para>
+		/// <b>Must not be nested.</b> Calling this from the body (or from
+		/// <paramref name="beforeRollbackHandler"/>) of another transaction on the same manager throws
+		/// <see cref="NestedTransactionException"/>. Consecutive calls are fine.
+		/// </para>
 		/// </remarks>
+		/// <exception cref="NestedTransactionException">
+		/// A transaction is already running on this manager instance.
+		/// </exception>
 		/// <exception cref="AggregateException">
 		/// The body failed <i>and</i> <paramref name="beforeRollbackHandler"/> or the rollback failed as well.
 		/// The body's exception is the first inner exception. When only the body failed it is rethrown as-is.

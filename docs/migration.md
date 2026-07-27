@@ -234,6 +234,41 @@ config.NewConfig<MPOptional<T>, Optional<T>>().MapWith(src => src.ToOptional());
 - ロールバックは常にキャンセルされていないトークンで実行されるので、
   `CancellationToken` のキャンセルでトランザクションが開いたまま残らなくなった
 - 失敗が複数あるときは `AggregateException` にまとめられる（最初の内部例外が元の失敗）
+- `BeginTransactionsAsync` を直接呼んで途中で失敗した場合も、開始済みのセッションが
+  ロールバック・`Dispose` されるようになった（放置されなくなった）
+
+#### トランザクションの入れ子が例外になった
+
+v2.x では、実行中の `ExecuteTransactionAsync` の本体からもう一度
+`ExecuteTransactionAsync` を呼べてしまい、**内側の commit が外側のセッションまで
+確定して `Dispose` していた**。例外は出ず、外側の残りの処理は Dispose 済みセッションに
+対して動き、外側の commit は「対象なし」で成功していた。
+
+v3.0.0 からは入り口で `NestedTransactionException` を投げる。
+
+```csharp
+// v2.x: 静かに壊れていた / v3.0.0: NestedTransactionException
+await _transactionManager.ExecuteTransactionAsync<AppSession>(
+    async (sessions, token) =>
+    {
+        await _otherCommandService.ExecuteAsync(dto, token);  // 中で ExecuteTransactionAsync を呼ぶ
+    });
+```
+
+**直し方:** 共通処理をドメインサービス／集約サービスに切り出し、
+同じ `ExecuteTransactionAsync` の本体からセッションを渡して呼ぶ。
+連続して 2 つのトランザクションを張るのは従来どおり正当。
+
+#### `beforeRollbackHandler` の呼び出し位置（doc の訂正）
+
+挙動は変わっていないが、v3.0.0 で XML doc と `docs/` の記述を実態に合わせた。
+
+- 本体（または begin）が失敗した場合 → ロールバック**前**に呼ばれる（セッションは生きている）
+- **commit が失敗した場合 → ロールバック後**に呼ばれる。`CommitTransactionsAsync` が
+  内部でロールバックと `Dispose` を済ませてから throw するため、
+  **ハンドラから見えるセッションは Dispose 済み**
+
+セッションを触る診断コードを書いている場合は、commit 失敗の経路を確認すること。
 
 ### 移行後の確認
 
@@ -243,6 +278,8 @@ config.NewConfig<MPOptional<T>, Optional<T>>().MapWith(src => src.ToOptional());
 - [ ] `ITransactionService<TSession>` がセッション型の数だけ登録されている
 - [ ] エンティティの等価性に依存した処理を洗い出した
 - [ ] 永続化・キャッシュされたハッシュ値を作り直した
+- [ ] コマンドサービスから別のコマンドサービスを呼んでいる箇所を洗い出した
+      （入れ子は `NestedTransactionException` になる）
 
 ---
 

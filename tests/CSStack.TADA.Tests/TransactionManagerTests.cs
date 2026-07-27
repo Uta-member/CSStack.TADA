@@ -48,6 +48,36 @@ namespace CSStack.TADA.Tests
         }
 
         [Fact]
+        public async Task BeginTransactionsAsync_BeginFailure_RollsBackAndDisposesTheSessionsAlreadyBegun()
+        {
+            var beginFailure = new InvalidOperationException("begin B failed");
+            _serviceB.BeginException = beginFailure;
+
+            var thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+                async () => await _manager.BeginTransactionsAsync(
+                    ImmutableList.Create(typeof(SessionA), typeof(SessionB))));
+
+            Assert.Same(beginFailure, thrown);
+            Assert.Equal(new[] { "begin:A", "begin:B", "rollback:A", "dispose:A" }, _log.Entries);
+            Assert.False(_manager.TryGetSession<SessionA>(out _));
+        }
+
+        [Fact]
+        public async Task BeginTransactionsAsync_BeginAndRollbackBothFail_ThrowsAggregateExceptionWithBoth()
+        {
+            var beginFailure = new InvalidOperationException("begin B failed");
+            var rollbackFailure = new InvalidOperationException("rollback A failed");
+            _serviceB.BeginException = beginFailure;
+            _serviceA.RollbackException = rollbackFailure;
+
+            var thrown = await Assert.ThrowsAsync<AggregateException>(
+                async () => await _manager.BeginTransactionsAsync(
+                    ImmutableList.Create(typeof(SessionA), typeof(SessionB))));
+
+            Assert.Equal(new Exception[] { beginFailure, rollbackFailure }, thrown.InnerExceptions);
+        }
+
+        [Fact]
         public async Task CommitTransactionsAsync_CommitsInOrderThenDisposesInReverseOrder()
         {
             await _manager.BeginTransactionAsync<SessionA>();
@@ -247,6 +277,141 @@ namespace CSStack.TADA.Tests
 
             Assert.Equal(new Exception[] { bodyFailure, handlerFailure }, thrown.InnerExceptions);
             Assert.Equal(new[] { "begin:A", "rollback:A", "dispose:A" }, _log.Entries);
+        }
+
+        [Fact]
+        public async Task ExecuteTransactionAsync_CommitFailure_InvokesTheHandlerAfterTheRollbackAndDispose()
+        {
+            var commitFailure = new InvalidOperationException("commit failed");
+            _serviceA.CommitException = commitFailure;
+            var disposeCountWhenHandlerRan = -1;
+
+            var thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+                async () => await _manager.ExecuteTransactionAsync<SessionA>(
+                    (_, _) => ValueTask.CompletedTask,
+                    _ =>
+                    {
+                        _log.Add("handler");
+                        disposeCountWhenHandlerRan = _serviceA.LastSession!.DisposeCount;
+                        return ValueTask.CompletedTask;
+                    }));
+
+            Assert.Same(commitFailure, thrown);
+
+            // CommitTransactionsAsync rolls back and disposes before it throws, so on this path the handler
+            // runs last and the session it sees is already disposed.
+            Assert.Equal(new[] { "begin:A", "commit:A", "rollback:A", "dispose:A", "handler" }, _log.Entries);
+            Assert.Equal(1, disposeCountWhenHandlerRan);
+        }
+
+        [Fact]
+        public async Task ExecuteTransactionAsync_NestedCallWithAnotherSessionType_ThrowsNestedTransactionException()
+        {
+            NestedTransactionException? nested = null;
+
+            await _manager.ExecuteTransactionAsync<SessionA>(
+                async (sessions, token) =>
+                {
+                    nested = await Assert.ThrowsAsync<NestedTransactionException>(
+                        async () => await _manager.ExecuteTransactionAsync<SessionB>(
+                            (_, _) =>
+                            {
+                                _log.Add("inner-body");
+                                return ValueTask.CompletedTask;
+                            },
+                            cancellationToken: token));
+
+                    // The outer session is untouched: not committed, not disposed, still reachable.
+                    _log.Add("outer-body");
+                    Assert.Same(_serviceA.LastSession, sessions.GetSession<SessionA>());
+                    Assert.Equal(0, _serviceA.LastSession!.DisposeCount);
+                });
+
+            Assert.IsAssignableFrom<TADAException>(nested);
+            Assert.Equal(new[] { "begin:A", "outer-body", "commit:A", "dispose:A" }, _log.Entries);
+        }
+
+        [Fact]
+        public async Task ExecuteTransactionAsync_NestedCallWithTheSameSessionType_ThrowsNestedTransactionException()
+        {
+            await _manager.ExecuteTransactionAsync<SessionA>(
+                async (sessions, token) =>
+                {
+                    await Assert.ThrowsAsync<NestedTransactionException>(
+                        async () => await _manager.ExecuteTransactionAsync<SessionA>(
+                            (_, _) =>
+                            {
+                                _log.Add("inner-body");
+                                return ValueTask.CompletedTask;
+                            },
+                            cancellationToken: token));
+
+                    _log.Add("outer-body");
+                    Assert.Same(_serviceA.LastSession, sessions.GetSession<SessionA>());
+                    Assert.Equal(0, _serviceA.LastSession!.DisposeCount);
+                });
+
+            Assert.Equal(new[] { "begin:A", "outer-body", "commit:A", "dispose:A" }, _log.Entries);
+        }
+
+        [Fact]
+        public async Task ExecuteTransactionAsync_NestedCallFromTheBeforeRollbackHandler_ThrowsNestedTransactionException()
+        {
+            var bodyFailure = new InvalidOperationException("body failed");
+
+            var thrown = await Assert.ThrowsAsync<AggregateException>(
+                async () => await _manager.ExecuteTransactionAsync<SessionA>(
+                    (_, _) => throw bodyFailure,
+                    async _ => await _manager.ExecuteTransactionAsync<SessionB>(
+                        (_, _) => ValueTask.CompletedTask)));
+
+            Assert.Same(bodyFailure, thrown.InnerExceptions[0]);
+            Assert.IsType<NestedTransactionException>(thrown.InnerExceptions[1]);
+            Assert.Equal(new[] { "begin:A", "rollback:A", "dispose:A" }, _log.Entries);
+        }
+
+        [Fact]
+        public async Task ExecuteTransactionAsync_ConsecutiveCallsOnTheSameInstanceAreAllowed()
+        {
+            await _manager.ExecuteTransactionAsync<SessionA>((_, _) => ValueTask.CompletedTask);
+            await _manager.ExecuteTransactionAsync<SessionA>((_, _) => ValueTask.CompletedTask);
+
+            Assert.Equal(
+                new[] { "begin:A", "commit:A", "dispose:A", "begin:A", "commit:A", "dispose:A" },
+                _log.Entries);
+        }
+
+        [Fact]
+        public async Task ExecuteTransactionAsync_FailedTransaction_DoesNotBlockTheNextOne()
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                async () => await _manager.ExecuteTransactionAsync<SessionA>(
+                    (_, _) => throw new InvalidOperationException("body failed")));
+
+            await _manager.ExecuteTransactionAsync<SessionA>((_, _) => ValueTask.CompletedTask);
+
+            Assert.Equal(
+                new[] { "begin:A", "rollback:A", "dispose:A", "begin:A", "commit:A", "dispose:A" },
+                _log.Entries);
+        }
+
+        [Fact]
+        public async Task ExecuteTransactionAsync_TransactionSessionsIsACopyOfTheSessionsThatWereRequested()
+        {
+            TransactionSessions? captured = null;
+
+            await _manager.ExecuteTransactionAsync<SessionA>(
+                async (sessions, token) =>
+                {
+                    captured = sessions;
+                    await _manager.BeginTransactionAsync<SessionB>(token);
+
+                    // A session begun after the call started is not reachable through the given set.
+                    Assert.False(sessions.TryGetSession<SessionB>(out _));
+                });
+
+            // The set is a copy, so committing the sessions does not empty it.
+            Assert.Same(_serviceA.LastSession, captured!.GetSession<SessionA>());
         }
 
         [Fact]

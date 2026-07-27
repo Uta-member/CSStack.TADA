@@ -84,6 +84,12 @@
   代わりに `GetSession<TSession>()` / `GetSession(Type)` / `TryGetSession<TSession>(out TSession)` を使ってください。
 - `GetSession(Type)` の戻り値が `object` から `IDisposable` に変更。
 - セッション未登録時に `KeyNotFoundException` ではなく `TransactionSessionNotFoundException` を送出。
+- **トランザクションの入れ子が `NestedTransactionException` になりました。**
+  実行中の `ExecuteTransactionAsync` の本体（および `beforeRollbackHandler`）から
+  同じマネージャーの `ExecuteTransactionAsync` を呼ぶと例外になります。
+  `ITransactionManager` は Scoped 登録なので、**コマンドサービスが別のコマンドサービスを呼ぶと
+  これに当たります**。従来はコンパイルも実行も通っていましたが、静かに壊れていました
+  （下記 Fixed を参照）。連続して 2 つのトランザクションを張るのは従来どおり正当です。
 - `ITransactionManager` に以下を追加（実装クラスにしか無かったものを含む）:
   `BeginTransactionAsync(Type)` / `BeginTransactionsAsync(ImmutableList<Type>)` /
   `GetSession(Type)` / `TryGetSession<TSession>(out TSession)` / `GetTransactionService(Type)` /
@@ -122,6 +128,10 @@
   `Select` / `SelectMany` / `Where` が揃ったため LINQ クエリ構文が使えます。
 - `TransactionSessionNotFoundException`（`TADAException` 派生）。
   セッション型名と対処法を含むメッセージ、および `SessionType` プロパティを持ちます。
+- `NestedTransactionException`（`TADAException` 派生）。
+  トランザクションを入れ子にしたときに送出されます。メッセージには
+  「共通処理はドメインサービス／集約サービスに切り出し、同じ `ExecuteTransactionAsync` の
+  本体から呼ぶ」という対処法まで含みます。
 - `TransactionSessions.TryGetSession<TSession>(out TSession)`。
 - `ITransactionManager.ExecuteTransactionAsync` のジェネリックオーバーロード（型引数 1〜3 個）。
   `ImmutableList.Create(typeof(MySession))` を書かずに済み、`IDisposable` でない型はコンパイルエラーになります。
@@ -146,6 +156,22 @@
   現在は未 commit のセッションのロールバックを試みます（commit 済みの分は元に戻せません）。
 - **キャンセル時の後始末**: ロールバックは常にキャンセルされていないトークンで実行されるため、
   `CancellationToken` のキャンセルでトランザクションが開いたまま残ることはありません。
+- **入れ子による外側トランザクションの早期コミット**: 実行中の `ExecuteTransactionAsync` の
+  本体からもう一度 `ExecuteTransactionAsync` を呼ぶと、内側の commit が
+  **自分が開始していない外側のセッションまで commit / `Dispose`** していました。
+  例外は一切出ず、外側の残りの処理は Dispose 済みセッションに対して動き、
+  外側の commit は対象が空のため何もせず成功していたため、
+  「ロールバックされるはずだった書き込み」が確定していました。
+  現在は入り口で `NestedTransactionException` を投げます（上記 Breaking Changes を参照）。
+- **`TransactionSessions` が可変辞書を直接参照していた**: `ExecuteTransactionAsync` の本体に
+  マネージャー内部の辞書がそのまま渡っていたため、本体が `BeginTransactionAsync<TOther>()` を
+  呼ぶと渡していないセッション型まで取得でき、逆に commit 後は中身が空になっていました。
+  現在は呼び出し開始時点のコピーを渡します。
+- **`BeginTransactionsAsync` の部分失敗**: 2 つ目以降の begin が失敗しても、
+  開始済みのセッションがロールバック・`Dispose` されずに残っていました
+  （`ExecuteTransactionAsync` 経由では `catch` が拾うため実害はありませんでしたが、
+  公開メソッドとして単体で呼ぶとリークしていました）。
+  現在は開始済みをロールバックしてから元の例外を再送出します。
 - **AOT / trimming**: `src/` から `dynamic` を排除しました。
 - **`Optional<T>` の null 許容解析**: `TryGetValue` の `out` パラメーターに `[MaybeNullWhen(false)]` を付与。
   false が返ったあとに `out` の値を使うとコンパイラが警告するようになります。
@@ -190,12 +216,20 @@
   `ICommandService` の `<returns>` 計 11 箇所）。特に
   `ExecuteTransactionAsync` の `sessionTypes` / `transactionFunction` / `beforeRollbackHandler` は、
   挙動が宣言から読み取れなかったため書き下しています:
-  - `beforeRollbackHandler` はロールバック**前**に呼ばれること、
-    **例外を投げてもロールバックは中断されず**、元の失敗と併せて報告されること、
-    本体成功後の commit 失敗でも呼ばれること
+  - `beforeRollbackHandler` が**例外を投げてもロールバックは中断されず**、
+    元の失敗と併せて報告されること
   - `transactionFunction` がセッションを commit / rollback / dispose してはいけないこと
   - `sessionTypes` に挙げていないセッションを要求すると
     `TransactionSessionNotFoundException` になること
+- **`beforeRollbackHandler` の呼び出し位置の記述を実態に合わせました**（XML doc と
+  `docs/api-reference.md`）。「常にロールバック前に呼ばれる」と書いていましたが、
+  **commit が失敗した経路ではロールバック後**に呼ばれます。
+  `CommitTransactionsAsync` が内部でロールバックと `Dispose` を済ませてから throw するためで、
+  この経路ではハンドラから見えるセッションは既に `Dispose` 済みです。
+  挙動は変えていません（呼び出し順序を固定するテストを追加しました）。
+- **入れ子の禁止**を `CLAUDE.md` の地雷・README の地雷・`docs/best-practices.md` /
+  `docs/use-case.md` / `docs/api-reference.md` / `docs/getting-started.md` /
+  `docs/migration.md` に追記しました。
 - `ValueObjectLengthException` の XML doc を補強しました。
   引数が **3 つとも `int`** で順序を誤ってもコンパイルが通るため、
   引数の意味（境界値が先、弾かれた長さが最後）と名前付き引数の推奨を明記し、
