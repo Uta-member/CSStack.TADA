@@ -65,8 +65,6 @@ dotnet run --project samples/CSStack.TADA.Sample   # サンプルの動作確認
 
 警告ゼロを維持すること。`Directory.Build.props` で `TreatWarningsAsErrors` を有効にしているため、
 XML doc の破損（CS1570 / CS1574）や記述漏れ（CS1591）は**ビルドエラーになる**。
-例外は `NU1902` / `NU1903`（依存パッケージの既知の脆弱性）で、これはこちらでは直せないため
-`WarningsNotAsErrors` で警告のままにしてある。
 
 **`dotnet format --verify-no-changes` も CI のゲート**になっている。インデント・改行コード
 （作業ツリーは CRLF。`.gitattributes` の `eol=crlf` により OS を問わずそうなる）・命名規則の
