@@ -182,6 +182,72 @@
 
 ### Documentation
 
+- **セッション型の扱いについての記述を全面的に改めました（API の変更はありません）。**
+  これまで「ドメイン層のインターフェースに具体的なセッション型（`AppSession` 等）を書くのは
+  `TSession` を明示的に伝播する設計の必然的な帰結であり、共有プロジェクトに置くのが推奨」と
+  書いていましたが、**これは推奨しません**。ドメイン層がインフラ層の実トランザクション因子を
+  名指しした時点で依存の向きが逆転し、TADA と DDD の利点がほぼ失われるためです。
+  現在の規約は次のとおりで、`docs/`（architecture / getting-started / domain-model / use-case /
+  best-practices / api-reference）・README（英日）・`CLAUDE.md` の地雷リスト・
+  ドメイン層とユースケース層の XML doc・`samples/` の実装をこれに合わせました。
+  - ドメイン層とユースケース層は**セッション型を型引数として受け取る**
+    （`IUserRepository<TSession>` / `UserAggregateService<TSession>`）
+  - 型引数の名前は、リポジトリと集約サービスは扱うリポジトリが 1 つなので `TSession`。
+    **ドメインサービスとユースケースは複数の集約を跨ぎうるので `T[集約名]Session`**
+    （`TUserSession` 等。集約ごとにデータストアが違えばセッション型も違うため、
+    1 集約しか扱っていない段階からこう書く）
+  - **具体型が決まるのはインフラ層の実装と、ユースケースとリポジトリを結びつける
+    プレゼンテーション層（DI 登録・ユースケースの組み立て）だけ**
+  - 境界の DTO（`ICommandServiceDTO` / `IQueryServiceDTO`）はセッションを持たないので
+    型引数も取らない。セッションを載せる `IDomainServiceDTO` だけが型引数を取る
+  - `docs/best-practices.md` に規約 11「ドメイン層・ユースケース層に具体的なセッション型を
+    書かない」を追加し、README の地雷リストにも 9 項目目として追加しました
+- **集約サービスとユースケースはインターフェースを立ててから実装する、という規約を追加しました
+  （API の変更はありません）。** これまでは `AggregateServiceBase` を継承した具象クラスを
+  そのままユースケースに注入し、ユースケースは `ICommandService<TReq, TRes>` で解決する形で
+  書いていましたが、前者はユースケースのテストのために集約サービスの具象クラスと
+  リポジトリ実装の組み立てを強制し、後者はプレゼンテーション層に
+  `CreateUserCommandService<AppSession>` と書かせることになります。
+  - **集約サービス**は `IAggregateService` を継承した口（`IUserAggregateService<TSession>`）を
+    宣言し、その実装を `AggregateServiceBase` の派生クラスとして書く。
+    **基底クラスは実装の詳細**であり、上の層に見せる契約ではない
+  - **コマンドサービス**は**セッション型引数を持たない口**
+    （`ICreateUserCommandService : ICommandService<...>`）を立てる。
+    プレゼンテーション層はこれを解決するのでセッション型を書かずに済み、
+    型引数が現れるのは DI 登録の 1 行だけになる
+  - **ドメインサービスとクエリサービスにも口を立てる**（理由は下記の DTO の置き場所の規約）
+  - `docs/best-practices.md` に規約 12 を追加し、README の地雷リストにも 10 項目目として
+    追加しました。`docs/`（architecture / getting-started / domain-model / use-case /
+    api-reference）・`CLAUDE.md`・`IAggregateService` / `AggregateServiceBase` /
+    `ICommandService` / `IDomainServiceDTO` の XML doc・`samples/` を揃えています
+- **集約サービスの口に `SaveAsync` のような汎用的な操作を置かない、という規約を追加しました
+  （API の変更はありません）。** `IAggregateService` を継承した口は実質的に集約ルートであり、
+  そこに並ぶメソッドが「この集約に何ができるか」の一覧になります。何でも受け取る `SaveAsync` が
+  `RegisterAsync` と並んでいると、呼ぶ側はたいてい `SaveAsync` を選び、
+  `RegisterAsync` に置いた「既に居たら失敗」が素通りされ、
+  リポジトリの upsert によって黙って上書きされます。
+  - 「取得する → 変更する → 保存する」は `RenameAsync` のような**ドメインの語彙で名付けた
+    1 つの操作**に閉じる。エンティティを集約の外へ出さないので、保存忘れも起こらない
+  - 不在を `ObjectNotFoundException` にするヘルパー（`GetRequiredAsync`）は `private` に留める。
+    口に載せるとエンティティが上の層へ出てしまい、書き換えても保存する手段が無い状態を作れる
+  - `docs/best-practices.md` に規約 13 を追加し、`docs/`（architecture / getting-started /
+    domain-model / api-reference）・README（英日）・`IAggregateService` /
+    `AggregateServiceBase` / `IRepository` の XML doc・`samples/` を揃えています
+- **リクエスト / レスポンス DTO を、それを使うサービスの口の中に `Req` / `Res` として
+  ネストする規約を追加しました（API の変更はありません）。**
+  `ICommandService` / `IQueryService` / `IDomainService` を継承した時点で
+  「メソッドは 1 つ、リクエスト 1 型、レスポンス 1 型」が確定するので、DTO は口と 1 対 1 に
+  対応します。名前空間に平らに置くと、口に対応する DTO を名前で探すことになり、
+  別のユースケースの DTO を渡しても型が合えばコンパイルが通ります。
+  - `ICreateUserCommandService.Req` / `.Res` のように口から必ず辿れる位置に置く
+  - **ドメインサービスとクエリサービスに口を立てる理由もこれ。** 前者は
+    `IDomainService<TReq>` が DTO の型で一意に定まるため注入だけなら口は不要、
+    後者はセッション型引数を持たないが、いずれも DTO の置き場所として口が要る
+  - 複数の口で共有する読み取りモデル（一覧の 1 行など）は 1 対 1 ではないのでネストしない
+  - `docs/best-practices.md` に規約 14 を追加し、`docs/`（use-case / architecture /
+    getting-started / domain-model / api-reference）・README（英日）・
+    `ICommandService` / `IDomainService` / `IQueryService` と 3 つの DTO マーカーの
+    XML doc・`samples/` を揃えています
 - **`docs/domain-model.md` を追加**。ドメイン層の型が何を強制し、何を規約に留めているかを整理:
   1 集約 = エンティティ 1・リポジトリ 1・集約サービス 1 という `IAggregateService` の
   5 型引数の意図 / エンティティの等価性と `Create`・`Reconstruct` の推奨 /
@@ -240,18 +306,18 @@
   NuGet パッケージ名もインストール手順も書かれていませんでした。現在は英日それぞれに
   インストール手順 / **貼り付ければ動く 8 ステップの最小例**（セッション定義 → 値オブジェクト →
   エンティティ → リポジトリ → トランザクションサービス → コマンドサービス → DI 登録 → 実行）/
-  レイヤー構成図 / **公開型 34 個すべての 1 行説明** / 必ず踏む地雷 8 項目 / `docs/` への導線が
+  レイヤー構成図 / **公開型 34 個すべての 1 行説明** / 必ず踏む地雷 10 項目 / `docs/` への導線が
   揃っています。
 - **`docs/architecture.md` を追加**。TADA の設計思想:
   トランザクションの範囲の表し方が 3 通りあり、暗黙の文脈（`TransactionScope`）と
   リポジトリがセッションを握る方式のそれぞれが何を壊すか / **なぜ `TSession` を
   全レイヤーに引き回すのか**とその代償 / レイヤー構成と `src/` のフォルダとの対応 /
   セッション伝播モデル / DDD・クリーンアーキテクチャとの差分 4 点 /
-  セッション型がドメイン層から見えることの是非とプロジェクト分割時の選択肢。
+  ドメイン層に具体的なセッション型を書かない理由と、型引数の名前・確定させる層の規約。
 - **`docs/getting-started.md` を追加**。インストールから動くまでを 7 ステップに分解。
   **DI 登録（`ITransactionService<TSession>` の登録と `TransactionManager` の Scoped 必須）**を
   独立した章に置き、落とすと必ず落ちる 2 つを明示しています。症状から原因を引く表つき。
-- **`docs/best-practices.md` を追加**。放置すると必ず踏む規約 10 件を危険度順に、
+- **`docs/best-practices.md` を追加**。放置すると必ず踏む規約 12 件を危険度順に、
   「間違い → 正しい形 → なぜ」の形で集約しました。将来 skill 化する際の参照先を想定しています。
 - **`docs/api-reference.md` を追加**。公開型 34 個すべてと、型引数
   （`TEntity` / `TEntityIdentifier` / `TOperateInfo` / `TSession` / `TRepository` /

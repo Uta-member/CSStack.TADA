@@ -39,14 +39,19 @@
 | `TEntity` | 集約のエンティティ。1 集約に 1 つ | `IEntity<TEntityIdentifier>` | `User` |
 | `TEntityIdentifier` | エンティティの識別子。値オブジェクト推奨 | `notnull` | `UserId` |
 | `TOperateInfo` | **書き込みと一緒に記録する「誰が・いつ」。** 読み取り系は受け取らない | `notnull` | `OperateInfo` |
-| `TSession` | **トランザクションセッション。** 呼び出し側が渡す。実装側は begin / commit / dispose しない | `IDisposable` | `AppSession` |
-| `TRepository` | 集約のリポジトリ。1 集約に 1 つ | `IRepository<...>` | `IUserRepository` |
-| `TReq` | リクエスト DTO | 各 `~DTO` マーカー | `CreateUserReq` |
-| `TRes` | レスポンス DTO | 各 `~DTO` マーカー | `CreateUserRes` |
+| `TSession` | **トランザクションセッション。** 呼び出し側が渡す。実装側は begin / commit / dispose しない | `IDisposable` | `TSession` のまま開く（後述） |
+| `TRepository` | 集約のリポジトリ。1 集約に 1 つ | `IRepository<...>` | `IUserRepository<TSession>` |
+| `TReq` | リクエスト DTO。**そのサービスの口の中にネストする** | 各 `~DTO` マーカー | `ICreateUserCommandService.Req` |
+| `TRes` | レスポンス DTO。**同上** | 各 `~DTO` マーカー | `ICreateUserCommandService.Res` |
 | `TSelf` | **自分自身の型**（CRTP）。実装する型をそのまま渡す | 各インターフェース | `record UserId : ISingleValueObject<Guid, UserId>` |
 
 `TOperateInfo` と `TSession` の詳しい説明は [domain-model.md](domain-model.md#toperateinfo-は誰がいつ) と
 [architecture.md](architecture.md#なぜ-tsession-を全レイヤーに引き回すのか)。
+
+**`TSession` に具体型を渡すのはインフラ層の実装とプレゼンテーション層の DI 登録だけ。**
+ドメイン層・ユースケース層の型定義では `TSession` のまま開いておき、ユースケースと
+ドメインサービスでは名前を `T[集約名]Session`（`TUserSession` など）にする
+（→ [architecture.md](architecture.md#ドメイン層に具体的なセッション型を書かない)）。
 
 ---
 
@@ -153,6 +158,8 @@ ValueTask SaveAsync(
   `ObjectAlreadyExistException` も `ObjectNotFoundException` も投げない
 - **検索系メソッドを足さない。** 一覧・条件検索は `IQueryService`
 - セッションは引数で受け取るだけ。begin / commit / dispose しない
+- **`TSession` に具体型を渡さない。** 派生インターフェースも
+  `IUserRepository<TSession>` のように開いたままにし、閉じるのは実装（インフラ層）
 - 書き込みが確定するのは `ITransactionManager` が commit したときで、メソッドが戻った時点ではない
 
 ### `IRepositoryDeletable<TEntity, TEntityIdentifier, TOperateInfo, TSession>`
@@ -188,6 +195,25 @@ TADA の集約の定義を型で書いている。
 不在は `Optional<T>.Empty` を返す。`ObjectNotFoundException` に変えるのは、
 エンティティの存在を要求する具体的なメソッドの側。
 
+**これを継承した集約サービスのインターフェースを宣言し、その実装を
+`AggregateServiceBase` の派生クラスとして書く。** 上の層に注入するのはインターフェース側。
+
+```csharp
+public interface IUserAggregateService<TSession>
+    : IAggregateService<User, UserId, IUserRepository<TSession>, OperateInfo, TSession>
+    where TSession : IDisposable
+{
+    ValueTask RenameAsync(
+        TSession session, UserId identifier, UserName newName, OperateInfo operateInfo,
+        CancellationToken ct = default);
+}
+```
+
+**この口は実質的に集約ルート。並べるのはドメインの操作だけで、`SaveAsync` のような
+汎用的な操作は置かない。** 「取得する → 変更する → 保存する」を 1 つの操作に閉じ、
+エンティティを上の層へ出さない
+→ [best-practices.md](best-practices.md#13-集約サービスに-saveasync-のような汎用的な操作を置かない)
+
 ### `AggregateServiceBase<TEntity, TEntityIdentifier, TRepository, TOperateInfo, TSession>`
 
 `IAggregateService` の基底クラス。実装済みなのは `GetEntityByIdentifierAsync`
@@ -196,9 +222,18 @@ TADA の集約の定義を型で書いている。
 集約のルール（保存・削除・不在時の扱い）は派生クラスに書く。
 
 ```csharp
-public sealed class UserAggregateService
-    : AggregateServiceBase<User, UserId, IUserRepository, OperateInfo, AppSession>
+public sealed class UserAggregateService<TSession>
+    : AggregateServiceBase<User, UserId, IUserRepository<TSession>, OperateInfo, TSession>,
+    IUserAggregateService<TSession>
+    where TSession : IDisposable
 ```
+
+- `TRepository` と `TSession` に具体型を渡さない。具体型が決まるのは DI 登録
+  （プレゼンテーション層）
+  → [architecture.md](architecture.md#ドメイン層に具体的なセッション型を書かない)
+- **この基底クラスは実装の詳細。** 上の層には
+  `IAggregateService` を継承した自前のインターフェースを見せる
+  → [best-practices.md](best-practices.md#12-集約サービスとユースケースはインターフェースを立ててから実装する)
 
 ---
 
@@ -216,6 +251,17 @@ ValueTask ExecuteAsync(TReq req, CancellationToken cancellationToken = default);
 - **セッション引数が無いので、DTO にセッションを載せて渡す**
 - 1 エンティティで完結するルールはエンティティ自身に、
   1 集約で完結するなら集約サービスに、オーケストレーションはコマンドサービスに置く
+- **専用の口を立て、リクエストをその中にネストする**
+
+```csharp
+public interface IUserNameUniquenessService<TUserSession>
+    : IDomainService<IUserNameUniquenessService<TUserSession>.Req>
+    where TUserSession : IDisposable
+{
+    sealed record Req(TUserSession Session, UserName Name, UserId ExceptUserId)
+        : IDomainServiceDTO;
+}
+```
 
 ### `IDomainService<TReq, TRes>`
 
@@ -223,7 +269,7 @@ ValueTask ExecuteAsync(TReq req, CancellationToken cancellationToken = default);
 
 ### `IDomainServiceDTO`
 
-ドメインサービスの DTO マーカー。`record` で宣言する。
+ドメインサービスの DTO マーカー。`record` で宣言し、そのドメインサービスの口の中にネストする。
 **3 種の DTO のうち、これだけがセッションを持つ。** エンティティや値オブジェクトも持ってよい。
 
 → [use-case.md](use-case.md#3-種のサービスの使い分け)
@@ -246,6 +292,27 @@ ValueTask ExecuteAsync(TReq req, CancellationToken cancellationToken = default);
 規約であって強制ではない（基底クラスは無い）が、`ITransactionManager` に
 まったく触らないコマンドサービスはほぼ間違い。
 
+**これを継承した、セッション型引数を持たないインターフェースをユースケースごとに立て、
+リクエストとレスポンスをその中にネストする。**
+実装はセッション型を型引数に持つので、この口が無いとプレゼンテーション層が
+`CreateUserCommandService<AppSession>` を名指しすることになる。
+
+```csharp
+public interface ICreateUserCommandService
+    : ICommandService<ICreateUserCommandService.Req, ICreateUserCommandService.Res>
+{
+    sealed record Req(string UserName, OperateInfo OperateInfo) : ICommandServiceDTO;
+
+    sealed record Res(Guid UserId) : ICommandServiceDTO;
+}
+
+public sealed class CreateUserCommandService<TUserSession> : ICreateUserCommandService
+    where TUserSession : IDisposable { /* ... */ }
+```
+
+→ [best-practices.md](best-practices.md#12-集約サービスとユースケースはインターフェースを立ててから実装する)、
+[best-practices.md](best-practices.md#14-リクエスト--レスポンスはサービスの口の中にネストする)
+
 ### `ICommandService<TReq, TRes>`
 
 採番した識別子などを返すコマンドサービス。
@@ -255,7 +322,8 @@ ValueTask ExecuteAsync(TReq req, CancellationToken cancellationToken = default);
 
 ### `ICommandServiceDTO`
 
-コマンドサービスの DTO マーカー。`record` で宣言する。
+コマンドサービスの DTO マーカー。`record` で宣言し、そのユースケースの口の中に
+`Req` / `Res` としてネストする。
 アプリケーションの境界に立つので、素の引数と操作情報だけを持つ。
 **セッションもエンティティも持たない。**
 
@@ -281,6 +349,18 @@ ValueTask<TRes> ExecuteAsync(TReq req, CancellationToken cancellationToken = def
   自前の接続を持つ
 - 実行中のトランザクションの未コミット状態を読む必要があるときだけ、
   リクエスト DTO にセッションを載せる（2 つ目のトランザクションを開始しない）
+- **クエリごとに口を立て、DTO をその中にネストする。** セッション型引数は無いので理由は
+  コマンドサービスとは違い、レスポンス型をそのクエリに固定するため
+
+```csharp
+public interface ISearchUsersQueryService
+    : IQueryService<ISearchUsersQueryService.Req, ISearchUsersQueryService.Res>
+{
+    sealed record Req(string NamePrefix) : IQueryServiceDTO;
+
+    sealed record Res(IReadOnlyList<UserSummary> Users) : IQueryServiceDTO;
+}
+```
 
 ### `IQueryService<TRes>`
 
@@ -297,7 +377,8 @@ ValueTask<TRes> ExecuteAsync(CancellationToken cancellationToken = default);
 
 ### `IQueryServiceDTO`
 
-クエリサービスの DTO マーカー。`record` で宣言する。
+クエリサービスの DTO マーカー。`record` で宣言し、そのクエリの口の中にネストする
+（複数のクエリで共有する読み取りモデルだけは外に置く）。
 呼び出し側の都合に合わせた素のデータを持つ。**エンティティを返さない。**
 
 → [use-case.md](use-case.md#クエリサービスはリポジトリを通さない)

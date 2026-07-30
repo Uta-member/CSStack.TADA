@@ -19,9 +19,28 @@
 	/// the request DTO — that is what <see cref="IDomainServiceDTO"/> implementations are expected to
 	/// carry. Do not inject <see cref="ITransactionManager"/> here.
 	/// </para>
+	/// <para>
+	/// <b>Declare an interface per domain service and nest its request in it.</b> This interface alone
+	/// would do — it is keyed by the DTO type — but the DTO then has no home the reader can reach from
+	/// the service. See <see cref="IDomainServiceDTO"/>.
+	/// </para>
 	/// <example>
 	/// <code>
-	/// public sealed record EnsureEmailIsUniqueRequest(MySession Session, Email Email) : IDomainServiceDTO;
+	/// public interface IEmailUniquenessService&lt;TUserSession&gt;
+	///     : IDomainService&lt;IEmailUniquenessService&lt;TUserSession&gt;.Req&gt;
+	///     where TUserSession : IDisposable
+	/// {
+	///     sealed record Req(TUserSession Session, Email Email) : IDomainServiceDTO;
+	/// }
+	///
+	/// public sealed class EmailUniquenessService&lt;TUserSession&gt; : IEmailUniquenessService&lt;TUserSession&gt;
+	///     where TUserSession : IDisposable
+	/// {
+	///     public ValueTask ExecuteAsync(
+	///         IEmailUniquenessService&lt;TUserSession&gt;.Req req,
+	///         CancellationToken cancellationToken = default)
+	///     { /* ... */ }
+	/// }
 	/// </code>
 	/// </example>
 	/// </remarks>

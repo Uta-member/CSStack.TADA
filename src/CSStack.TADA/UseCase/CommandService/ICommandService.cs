@@ -20,32 +20,73 @@
 	/// case is the one below, and a command service that never touches
 	/// <see cref="ITransactionManager"/> is nearly always a mistake.
 	/// </para>
+	/// <para>
+	/// <b>The session type stays a type parameter here too, and it is not called <c>TSession</c>.</b>
+	/// A use case commonly spans several aggregates, and aggregates written to different stores have
+	/// different session types, so the parameter is named after the aggregate — <c>TUserSession</c>,
+	/// <c>TOrderSession</c> — which also reads correctly when they line up as
+	/// <c>ExecuteTransactionAsync&lt;TUserSession, TOrderSession&gt;</c>. Do this from the start, even
+	/// while only one aggregate is involved. The concrete types are chosen where the use case is bound
+	/// to its repositories: the constructor call, or the DI registration in the composition root. See
+	/// <see cref="IRepository{TEntity, TEntityIdentifier, TOperateInfo, TSession}"/>. The request and
+	/// response DTOs carry no session and therefore take no type parameter.
+	/// </para>
+	/// <para>
+	/// <b>Declare an interface per use case and derive it from this one — without a session type
+	/// parameter — and nest the request and response in it as <c>Req</c> and <c>Res</c>.</b> The
+	/// implementation is generic over the session, so resolving the use case through
+	/// <c>ICommandService&lt;TReq, TRes&gt;</c> would make the presentation layer name
+	/// <c>ChangeUserNameCommandService&lt;AppSession&gt;</c>. With an
+	/// <c>IChangeUserNameCommandService : ICommandService&lt;IChangeUserNameCommandService.Req&gt;</c> in
+	/// front of it, callers resolve that and the type argument appears in the DI registration alone;
+	/// tests substitute the interface. See <see cref="ICommandServiceDTO"/> for why the DTOs belong
+	/// inside it. Take the layers below as interfaces too — the aggregate service and the domain service
+	/// each through their own.
+	/// </para>
 	/// <example>
 	/// <code>
-	/// public sealed class ChangeUserNameCommandService : ICommandService&lt;ChangeUserNameRequest&gt;
+	/// public interface IChangeUserNameCommandService : ICommandService&lt;IChangeUserNameCommandService.Req&gt;
+	/// {
+	///     sealed record Req(Guid UserId, string NewName, OperateInfo OperateInfo) : ICommandServiceDTO;
+	/// }
+	///
+	/// public sealed class ChangeUserNameCommandService&lt;TUserSession&gt;
+	///     : IChangeUserNameCommandService
+	///     where TUserSession : IDisposable
 	/// {
 	///     private readonly ITransactionManager _transactionManager;
-	///     private readonly UserAggregateService _userAggregateService;
+	///     private readonly IUserAggregateService&lt;TUserSession&gt; _userAggregateService;
 	///
 	///     public ChangeUserNameCommandService(
 	///         ITransactionManager transactionManager,
-	///         UserAggregateService userAggregateService)
+	///         IUserAggregateService&lt;TUserSession&gt; userAggregateService)
 	///     {
 	///         _transactionManager = transactionManager;
 	///         _userAggregateService = userAggregateService;
 	///     }
 	///
-	///     public ValueTask ExecuteAsync(ChangeUserNameRequest req, CancellationToken cancellationToken = default)
+	///     public ValueTask ExecuteAsync(
+	///         IChangeUserNameCommandService.Req req,
+	///         CancellationToken cancellationToken = default)
 	///     {
-	///         return _transactionManager.ExecuteTransactionAsync&lt;MySession&gt;(
+	///         return _transactionManager.ExecuteTransactionAsync&lt;TUserSession&gt;(
 	///             async (sessions, token) =&gt;
 	///             {
-	///                 var session = sessions.GetSession&lt;MySession&gt;();
-	///                 await _userAggregateService.ChangeNameAsync(session, req.UserId, req.NewName, req.OperateInfo, token);
+	///                 var session = sessions.GetSession&lt;TUserSession&gt;();
+	///                 await _userAggregateService.ChangeNameAsync(
+	///                     session, UserId.Create(req.UserId), UserName.Create(req.NewName), req.OperateInfo, token);
 	///             },
 	///             cancellationToken: cancellationToken);
 	///     }
 	/// }
+	///
+	/// // Presentation layer — the only place the concrete session type appears
+	/// services.AddScoped&lt;IUserAggregateService&lt;AppSession&gt;, UserAggregateService&lt;AppSession&gt;&gt;();
+	/// services.AddScoped&lt;IChangeUserNameCommandService, ChangeUserNameCommandService&lt;AppSession&gt;&gt;();
+	///
+	/// // ... and the caller never names it
+	/// var commandService = scope.ServiceProvider.GetRequiredService&lt;IChangeUserNameCommandService&gt;();
+	/// await commandService.ExecuteAsync(new IChangeUserNameCommandService.Req(userId, "robert", operateInfo));
 	/// </code>
 	/// </example>
 	/// </remarks>
