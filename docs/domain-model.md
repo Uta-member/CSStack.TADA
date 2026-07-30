@@ -22,19 +22,45 @@ TADA が集約について強制することは 1 つだけです。
 `AggregateServiceBase` は `SaveAsync` や `DeleteAsync` のラッパーを持ちません。
 リポジトリへの委譲だけを増やしても、層が 1 つ増えるだけで規約は増えないからです。
 
+### インターフェースを立ててから実装する
+
+**`IAggregateService` を継承した集約サービスのインターフェースを宣言し、
+その実装として `AggregateServiceBase` の派生クラスを書いてください。**
+上の層（ユースケース）が注入するのはインターフェースです。
+
+```csharp
+public interface IUserAggregateService<TSession>
+	: IAggregateService<User, UserId, IUserRepository<TSession>, OperateInfo, TSession>
+	where TSession : IDisposable
+{
+	ValueTask ChangeNameAsync(
+		TSession session,
+		UserId userId,
+		UserName newName,
+		OperateInfo operateInfo,
+		CancellationToken cancellationToken = default);
+}
+```
+
+`AggregateServiceBase` の派生クラスを直接注入すると、**ユースケースのテストのために
+集約サービスの具象クラスを組み立てることになり、その先のリポジトリ実装まで必要になります。**
+基底クラスは実装の詳細であって、上の層に見せる契約ではありません。
+
 集約の操作は派生クラス側に書きます。`Repository` は `protected` で公開されています。
 
 ```csharp
-public sealed class UserAggregateService
-	: AggregateServiceBase<User, UserId, IUserRepository, OperateInfo, MySession>
+public sealed class UserAggregateService<TSession>
+	: AggregateServiceBase<User, UserId, IUserRepository<TSession>, OperateInfo, TSession>,
+	IUserAggregateService<TSession>
+	where TSession : IDisposable
 {
-	public UserAggregateService(IUserRepository repository)
+	public UserAggregateService(IUserRepository<TSession> repository)
 		: base(repository)
 	{
 	}
 
 	public async ValueTask ChangeNameAsync(
-		MySession session,
+		TSession session,
 		UserId userId,
 		UserName newName,
 		OperateInfo operateInfo,
@@ -50,6 +76,37 @@ public sealed class UserAggregateService
 		await Repository.SaveAsync(session, user.ChangeName(newName), operateInfo, cancellationToken);
 	}
 }
+```
+
+**セッション型は型引数として受け取り、具体型を書きません。** 集約サービスまでは扱う
+リポジトリが 1 つなので、名前は素の `TSession` で構いません。集約をまたぐ層
+（ドメインサービス・ユースケース）では `TUserSession` のように集約名を入れます
+（→ [architecture.md](architecture.md#ドメイン層に具体的なセッション型を書かない)）。
+
+### 口に並べるのはドメインの操作だけ。`SaveAsync` を置かない
+
+**この口は実質的に集約ルートで、並ぶメソッドが「この集約に何ができるか」の一覧になります。**
+`ChangeNameAsync` のように名前がドメインの語彙になっているのはそのためで、
+ここに汎用の `SaveAsync` を足してはいけません。
+
+```csharp
+// ✗ RegisterAsync と並べると、呼ぶ側は何でも通る SaveAsync を選ぶ。
+//    RegisterAsync に置いた「既に居たら失敗」は素通りされ、upsert で黙って上書きされる
+ValueTask SaveAsync(TSession s, User u, OperateInfo o, CancellationToken ct = default);
+```
+
+上の `ChangeNameAsync` のように、**「取得する → 変更する → 保存する」を 1 つの操作に閉じます。**
+そうすればエンティティを集約の外へ出さずに済みます。逆にエンティティを返してしまうと、
+上の層で書き換えても保存する手段が口に無く、「変更したつもりが何も起きない」コードが書けます。
+不在を `ObjectNotFoundException` にするヘルパーは便利ですが、**`private` に留めてください。**
+読み取りが目的なら、それはクエリサービスの仕事です。
+
+リポジトリの `SaveAsync` を呼ぶのはこの層までで、ユースケースからは呼びません。
+
+DI 登録も「インターフェース → 実装」の形になります。
+
+```csharp
+services.AddScoped<IUserAggregateService<AppSession>, UserAggregateService<AppSession>>();
 ```
 
 ---
@@ -239,14 +296,20 @@ public sealed record UserName : ISingleValueObject<string, UserName>, ILengthDef
 
 ## リポジトリ
 
+インターフェースはドメイン層に置き、**セッション型は型引数のまま開いておきます。**
+
 ```csharp
-public interface IUserRepository : IRepository<User, UserId, OperateInfo, MySession>
+public interface IUserRepository<TSession> : IRepository<User, UserId, OperateInfo, TSession>
+	where TSession : IDisposable
 {
 }
 ```
 
+実装はインフラ層です。**具体的なセッション型を名指しするのはこちらだけ**で、
+ここで型引数を閉じます。
+
 ```csharp
-public sealed class UserRepository : IUserRepository
+public sealed class UserRepository : IUserRepository<MySession>
 {
 	public async ValueTask<Optional<User>> FindByIdentifierAsync(
 		MySession session,
@@ -280,6 +343,22 @@ public sealed class UserRepository : IUserRepository
 	}
 }
 ```
+
+### `TSession` は型引数のまま開く
+
+```csharp
+// ✗ ドメイン層のインターフェースがインフラ層の実トランザクション因子を名指ししている
+public interface IUserRepository : IRepository<User, UserId, OperateInfo, MySession>;
+
+// ✓ 具体型は実装（インフラ層）と DI 登録（プレゼンテーション層）だけが知っている
+public interface IUserRepository<TSession> : IRepository<User, UserId, OperateInfo, TSession>
+	where TSession : IDisposable;
+```
+
+前者もコンパイルは通りますが、ドメイン層が特定のデータストア実装に張り付き、
+依存性逆転もテストダブルも成立しなくなります。**`TSession` を引き回すというのは
+「型引数を引き回す」ことであって、「具体型をドメインに焼き込む」ことではありません**
+（→ [architecture.md](architecture.md#ドメイン層に具体的なセッション型を書かない)）。
 
 ### `TOperateInfo` は「誰が・いつ」
 
@@ -377,9 +456,34 @@ throw new ObjectNotFoundException($"User {userId.Value} was not found.");
 `IDomainService<TReq>.ExecuteAsync` はセッションを引数に取りません。
 **セッションはリクエスト DTO に載せてください。**
 
+**そして専用の口を立てて、そのリクエストを口の中に `Req` としてネストします。**
+
 ```csharp
-public sealed record EnsureEmailIsUniqueRequest(MySession Session, Email Email) : IDomainServiceDTO;
+public interface IEmailUniquenessService<TUserSession>
+	: IDomainService<IEmailUniquenessService<TUserSession>.Req>
+	where TUserSession : IDisposable
+{
+	sealed record Req(TUserSession Session, Email Email) : IDomainServiceDTO;
+}
+
+public sealed class EmailUniquenessService<TUserSession> : IEmailUniquenessService<TUserSession>
+	where TUserSession : IDisposable
+{
+	// ...
+}
 ```
+
+注入するだけなら口は要りません。`IDomainService<TReq>` がリクエスト DTO の型で
+一意に定まる口になっているからです。**口を立てる理由はリクエストの置き場所にあります。**
+DTO を名前空間に平らに置くと、「このドメインサービスに何を渡すのか」を名前で探すことになり、
+口と DTO の対応が誰にも保証されません
+（→ [use-case.md](use-case.md#リクエストとレスポンスは口の中にネストする)）。
+
+**DTO に載せるセッションも具体型ではなく型引数です**（ネストしていれば口の型引数がそのまま使えます）。
+そしてドメインサービスは集約をまたぐので、型引数の名前は `TSession` ではなく
+`T[集約名]Session` にします。触る集約が増えたら
+`IEmailUniquenessService<TUserSession, TInvitationSession>` のように並べられるからです
+（→ [architecture.md](architecture.md#型引数の名前-集約をまたぐ層では-t集約名session)）。
 
 ドメインサービスがトランザクションを開始することはありません。
 `ITransactionManager` を注入しないでください。
@@ -397,9 +501,14 @@ public sealed record EnsureEmailIsUniqueRequest(MySession Session, Email Email) 
 | 長さの制約を持たせる | `ILengthDefinedSingleValueObject` で公開し、`Create` で検証する |
 | 見つからなかったことを表す | `Optional<T>.Empty` を返す（`return null;` ではない） |
 | 見つからないのを異常とみなす | 集約サービス / ユースケースで `ObjectNotFoundException(typeof(T), id)` |
-| 保存する | `SaveAsync`（upsert）。操作情報を必ず渡す |
+| 保存する | 集約サービスの中から `Repository.SaveAsync`（upsert）。操作情報を必ず渡す |
 | 一覧・条件検索をする | `IQueryService`。リポジトリには足さない |
-| 集約をまたぐルールを書く | ドメインサービス。セッションはリクエスト DTO に載せる |
+| 集約をまたぐルールを書く | ドメインサービス。口を立て、セッションを載せた `Req` をその中にネストする |
+| 集約サービスを定義する | `IAggregateService` を継承した口を宣言し、`AggregateServiceBase` の派生で実装する |
+| 集約サービスに操作を足す | ドメインの操作の名前で。`SaveAsync` のような汎用名は置かない |
+| 集約サービスを注入する | 具象クラスではなくインターフェース（`IUserAggregateService<TSession>`） |
+| セッション型を受け取る | 型引数で受ける。集約サービスまでは `TSession`、集約をまたぐなら `T[集約名]Session` |
+| セッションの具体型を決める | ドメイン層では決めない。実装（インフラ層）と DI 登録（プレゼンテーション層） |
 
 ## 関連
 

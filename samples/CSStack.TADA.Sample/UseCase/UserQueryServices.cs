@@ -3,31 +3,27 @@
     /// <summary>
     /// 一覧に出す 1 行分。エンティティではなく画面の都合に合わせた素のデータ。
     /// </summary>
+    /// <remarks>
+    /// これは <c>Req</c> / <c>Res</c> そのものではなく複数のレスポンスで共有する読み取りモデルなので、
+    /// どれか 1 つの口の中に入れず外に置く。ネストするのは口と 1 対 1 に対応する型だけ。
+    /// </remarks>
     public sealed record UserSummary(Guid UserId, string Name, bool IsSuspended);
 
     /// <summary>
-    /// ユーザー一覧のレスポンス。
-    /// </summary>
-    public sealed record ListUsersRes(IReadOnlyList<UserSummary> Users) : IQueryServiceDTO;
-
-    /// <summary>
-    /// 名前で絞り込むリクエスト。
-    /// </summary>
-    public sealed record SearchUsersReq(string NamePrefix) : IQueryServiceDTO;
-
-    /// <summary>
-    /// 名前で絞り込んだ結果。
-    /// </summary>
-    public sealed record SearchUsersRes(IReadOnlyList<UserSummary> Users) : IQueryServiceDTO;
-
-    /// <summary>
-    /// 全ユーザーを一覧するクエリサービス。
+    /// 全ユーザーを一覧するクエリサービスの口。
     /// </summary>
     /// <remarks>
     /// <para>
     /// <b>型引数が 1 つの <see cref="IQueryService{TRes}"/> は「レスポンス」を表す。</b>
     /// <c>ICommandService&lt;T&gt;</c> や <c>IDomainService&lt;T&gt;</c> の 1 つ目がリクエストなのと逆なので、
     /// 引数があるときは迷わず <see cref="IQueryService{TReq, TRes}"/> を使うとよい。
+    /// </para>
+    /// <para>
+    /// <b>クエリサービスにも専用の口を立てて <c>Res</c> をネストする。</b>
+    /// クエリサービスはセッション型引数を持たないので、口を立てる理由はコマンドサービスとは違い、
+    /// 「レスポンス型をこのクエリと 1 対 1 に固定し、口から辿れる場所に置く」ためだけにある。
+    /// <c>IQueryService&lt;ListUsersRes&gt;</c> のまま注入すると、
+    /// 同じ形のレスポンスを返す別のクエリと DI 上で衝突しうる。
     /// </para>
     /// <para>
     /// <b>リポジトリを通さずストアを直接読む。</b> エンティティを組み立ててから一覧用に潰すのは
@@ -40,7 +36,39 @@
     /// リクエスト DTO にセッションを載せて渡す（2 つ目のトランザクションを開始しない）。
     /// </para>
     /// </remarks>
-    public sealed class ListUsersQueryService : IQueryService<ListUsersRes>
+    public interface IListUsersQueryService : IQueryService<IListUsersQueryService.Res>
+    {
+        /// <summary>
+        /// レスポンス。
+        /// </summary>
+        sealed record Res(IReadOnlyList<UserSummary> Users) : IQueryServiceDTO;
+    }
+
+    /// <summary>
+    /// 名前の前方一致でユーザーを探すクエリサービスの口。
+    /// </summary>
+    /// <remarks>
+    /// リクエストがあるので型引数 2 つの <see cref="IQueryService{TReq, TRes}"/>。
+    /// <c>Req</c> と <c>Res</c> の両方をここにネストする。
+    /// </remarks>
+    public interface ISearchUsersQueryService
+        : IQueryService<ISearchUsersQueryService.Req, ISearchUsersQueryService.Res>
+    {
+        /// <summary>
+        /// リクエスト。名前の前方一致で絞り込む。
+        /// </summary>
+        sealed record Req(string NamePrefix) : IQueryServiceDTO;
+
+        /// <summary>
+        /// レスポンス。
+        /// </summary>
+        sealed record Res(IReadOnlyList<UserSummary> Users) : IQueryServiceDTO;
+    }
+
+    /// <summary>
+    /// <see cref="IListUsersQueryService"/> の実装。
+    /// </summary>
+    public sealed class ListUsersQueryService : IListUsersQueryService
     {
         private readonly AppDatabase _database;
 
@@ -55,24 +83,22 @@
         /// <summary>
         /// 実行する。
         /// </summary>
-        public ValueTask<ListUsersRes> ExecuteAsync(CancellationToken cancellationToken = default)
+        public ValueTask<IListUsersQueryService.Res> ExecuteAsync(
+            CancellationToken cancellationToken = default)
         {
             var users = _database.Users
                 .Select(row => new UserSummary(row.Id, row.Name, row.IsSuspended))
                 .OrderBy(user => user.Name, StringComparer.Ordinal)
                 .ToList();
 
-            return ValueTask.FromResult(new ListUsersRes(users));
+            return ValueTask.FromResult(new IListUsersQueryService.Res(users));
         }
     }
 
     /// <summary>
-    /// 名前の前方一致でユーザーを探すクエリサービス。
+    /// <see cref="ISearchUsersQueryService"/> の実装。
     /// </summary>
-    /// <remarks>
-    /// リクエストがあるので型引数 2 つの <see cref="IQueryService{TReq, TRes}"/>。
-    /// </remarks>
-    public sealed class SearchUsersQueryService : IQueryService<SearchUsersReq, SearchUsersRes>
+    public sealed class SearchUsersQueryService : ISearchUsersQueryService
     {
         private readonly AppDatabase _database;
 
@@ -87,8 +113,8 @@
         /// <summary>
         /// 実行する。
         /// </summary>
-        public ValueTask<SearchUsersRes> ExecuteAsync(
-            SearchUsersReq req,
+        public ValueTask<ISearchUsersQueryService.Res> ExecuteAsync(
+            ISearchUsersQueryService.Req req,
             CancellationToken cancellationToken = default)
         {
             var users = _database.Users
@@ -97,7 +123,7 @@
                 .OrderBy(user => user.Name, StringComparer.Ordinal)
                 .ToList();
 
-            return ValueTask.FromResult(new SearchUsersRes(users));
+            return ValueTask.FromResult(new ISearchUsersQueryService.Res(users));
         }
     }
 }

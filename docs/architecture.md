@@ -23,10 +23,14 @@ DDD やクリーンアーキテクチャと何が違うのかをまとめる。
 // このメソッドは、誰かが既に始めたトランザクションの中で動く。
 // 引数を見ればそれが分かる ← これが TADA の主張のほぼすべて
 ValueTask<Optional<User>> FindByIdentifierAsync(
-    AppSession session,
+    TSession session,
     UserId identifier,
     CancellationToken cancellationToken = default);
 ```
+
+引数にあるのは**セッション型の型引数**であって、インフラ層の具体型ではない。
+ドメイン層に `AppSession` と書くのは推奨されない
+→ [ドメイン層に具体的なセッション型を書かない](#ドメイン層に具体的なセッション型を書かない)
 
 ---
 
@@ -103,7 +107,8 @@ await _repository.SaveAsync(session, user, operateInfo, token);
 ### 代償
 
 **正直に書くと、冗長。** すべてのメソッドに引数が 1 つ増え、
-ドメイン層のインターフェースにセッション型が型引数として現れる。
+ドメイン層のインターフェースにセッション型の**型引数**が現れ、
+それがユースケース層まで波及する。
 
 TADA はこれを「隠すべきコスト」ではなく「払う価値のある明示化」と見なす。
 トランザクションの範囲は業務の正しさに直結するので、暗黙にしてよい種類の詳細ではない、
@@ -148,6 +153,10 @@ TADA はこれを「隠すべきコスト」ではなく「払う価値のある
 依存の向きは Presentation → UseCase → Domain で、Infrastructure は
 Domain のインターフェースを実装する側から刺さる（依存性逆転）。ここは
 クリーンアーキテクチャと同じ。
+
+**セッション型もこの向きに従う。** UseCase と Domain は型引数として受け取るだけで
+具体型を知らず、Infrastructure が具体型を定義して実装で閉じ、Presentation が
+DI 登録で両者を結びつける → [ドメイン層に具体的なセッション型を書かない](#ドメイン層に具体的なセッション型を書かない)
 
 ### `src/` のフォルダとの対応
 
@@ -252,15 +261,189 @@ IAggregateService<TEntity, TEntityIdentifier, TRepository, TOperateInfo, TSessio
 
 ---
 
-## セッション型がドメイン層から見えることについて
+## ドメイン層に具体的なセッション型を書かない
 
-`IUserRepository : IRepositoryDeletable<User, UserId, OperateInfo, AppSession>` と書くと、
-ドメイン層のインターフェースがインフラ層の型 `AppSession` を参照することになる。
-**これは設計ミスではなく、`TSession` を明示的に伝播すると決めたことの必然的な帰結。**
+これは書ける。**が、推奨されない。**
 
-プロジェクトを分けるときの選択肢は 2 つ。
+```csharp
+// ✗ ドメイン層のインターフェースがインフラ層の実トランザクション因子を名指ししている
+public interface IUserRepository : IRepositoryDeletable<User, UserId, OperateInfo, AppSession>;
+```
 
-**A. セッション型を共有プロジェクトに置く（推奨）**
+コンパイルは通り、サンプル程度の規模なら動く。しかし**この 1 行で、TADA を採用する利点と
+DDD の利点がほぼ消える。**
+
+- **依存の向きが逆転する。** ドメイン層が特定のデータストア実装に張り付き、
+  「インフラはドメインのインターフェースを実装する側から刺さる」という前提が崩れる
+- **テストダブルが差し込めない。** ドメインの単体テストのために毎回 `AppSession` を
+  用意することになる
+- **集約ごとにストアが違う構成へ進めない。** 1 つの具体型に固定されているので、
+  「ユーザーは RDB、監査ログは別ストア」という珍しくもない構成に手が届かない
+- **セッションが太ると全部が漏れる。** `DbContext` をそのままセッションにした場合、
+  ドメイン層から EF Core が見えてしまう
+
+`TSession` を明示的に伝播するという判断は、**「セッション型を型引数として引き回す」ことを
+意味していて、「具体型をドメインに焼き込む」ことは意味していない。**
+
+### 正しい形: 型引数として外から受け取る
+
+**ドメイン層とユースケース層は、セッション型を型引数として受け取るだけで具体型を知らない。**
+
+```csharp
+// ✓ Domain: 集約が扱うリポジトリは 1 つなので、名前は素の TSession でよい
+public interface IUserRepository<TSession> : IRepositoryDeletable<User, UserId, OperateInfo, TSession>
+    where TSession : IDisposable;
+
+public sealed class UserAggregateService<TSession>
+    : AggregateServiceBase<User, UserId, IUserRepository<TSession>, OperateInfo, TSession>
+    where TSession : IDisposable
+{
+    public UserAggregateService(IUserRepository<TSession> repository) : base(repository) { }
+
+    // 集約サービスのメソッドはドメインの操作の名前にする（SaveAsync のような汎用名にしない）
+    public async ValueTask RenameAsync(
+        TSession session, UserId id, UserName newName, OperateInfo operateInfo, CancellationToken ct = default)
+    {
+        var user = await GetRequiredAsync(session, id, ct);
+        user.Rename(newName);
+        await Repository.SaveAsync(session, user, operateInfo, ct);
+    }
+}
+```
+
+### 型引数の名前: 集約をまたぐ層では `T[集約名]Session`
+
+集約サービスまでは扱うリポジトリが 1 つなので `TSession` で足りる。
+**ユースケース層とドメインサービスでは `TSession` という名前を使わない。**
+
+これらの層は複数の集約に触る可能性があり、**集約ごとにリポジトリが違えば、
+書き込み先のデータストアも違いうる = セッション型も違う。**
+そこで集約の名前を `T` と `Session` の間に入れて、並べられる名前にしておく。
+
+```csharp
+// ✓ UseCase: 集約ごとに別の型引数。ストアが違えば別の型が入る
+public sealed class TransferCommandService<TAccountSession, TAuditLogSession>
+    : ITransferCommandService
+    where TAccountSession : IDisposable
+    where TAuditLogSession : IDisposable
+{
+    public ValueTask ExecuteAsync(
+        ITransferCommandService.Req req, CancellationToken cancellationToken = default)
+        => _transactionManager.ExecuteTransactionAsync<TAccountSession, TAuditLogSession>(
+            async (sessions, token) =>
+            {
+                var accountSession = sessions.GetSession<TAccountSession>();
+                var auditSession = sessions.GetSession<TAuditLogSession>();
+                // ...
+            },
+            cancellationToken: cancellationToken);
+}
+```
+
+**今は 1 集約しか扱っていなくても `TUserSession` と書く。** 後から集約が増えたときに、
+`TSession` がどの集約のセッションだったのか判別できなくなる。
+
+> 複数セッションを 1 つのトランザクションで扱えることと、それが**アトミックに commit される**
+> ことは別の話。2 相コミットではないので、確定してほしいストアは 1 つに設計する。
+
+### 型が確定するのはプレゼンテーション層
+
+では具体型はどこで決まるのか。**ユースケースとリポジトリを結びつける瞬間**、
+つまりユースケースをインスタンス化するとき（引数にリポジトリを渡すとき）か、
+DI コンテナに登録するときである。どちらもプレゼンテーション層。
+
+```csharp
+// Presentation: ここが唯一 AppSession という名前が出てくる場所（インフラ層の実装を除く）
+services.AddScoped<ITransactionService<AppSession>, AppTransactionService>();
+
+services.AddScoped<IUserRepository<AppSession>, InMemoryUserRepository>();
+services.AddScoped<IUserAggregateService<AppSession>, UserAggregateService<AppSession>>();
+
+services.AddScoped<ICreateUserCommandService, CreateUserCommandService<AppSession>>();
+```
+
+まとめると、セッション型に対する各層の関わり方はこうなる。
+
+| 層 | セッション型 |
+|---|---|
+| Presentation | **具体型を決める**（DI 登録 / ユースケースの組み立て） |
+| UseCase | 型引数 `T[集約名]Session` として受け取る |
+| Domain | 型引数 `TSession`（集約をまたぐならこちらも `T[集約名]Session`）として受け取る |
+| Infrastructure | **具体型を定義し、実装で閉じる**（`IUserRepository<AppSession>`） |
+
+動く実例は [../samples/CSStack.TADA.Sample/](../samples/CSStack.TADA.Sample/) にある。
+
+### 型引数を呼び出し側に見せない: 各層に口を立てる
+
+型引数を上の層まで波及させると、最後に困るのは呼び出し側になる。
+コントローラーが `CreateUserCommandService<AppSession>` と書く羽目になるなら、
+プレゼンテーション層にセッション型が漏れているのと同じことになってしまう。
+
+**そこで、集約サービスとユースケースにはインターフェースを立てて、そちらを注入・解決する。**
+
+```csharp
+// Domain: 集約サービスの口。IAggregateService を継承して集約の操作を宣言する
+// ★ 並ぶのはドメインの操作だけ。SaveAsync のような汎用的な口は置かない
+public interface IUserAggregateService<TSession>
+    : IAggregateService<User, UserId, IUserRepository<TSession>, OperateInfo, TSession>
+    where TSession : IDisposable
+{
+    ValueTask RegisterAsync(TSession s, User u, OperateInfo o, CancellationToken ct = default);
+    ValueTask RenameAsync(
+        TSession s, UserId id, UserName newName, OperateInfo o, CancellationToken ct = default);
+}
+
+// Domain: 実装。基底クラスは実装の詳細で、上の層はこのクラスを知らない
+public sealed class UserAggregateService<TSession>
+    : AggregateServiceBase<User, UserId, IUserRepository<TSession>, OperateInfo, TSession>,
+    IUserAggregateService<TSession>
+    where TSession : IDisposable { /* ... */ }
+
+// UseCase: ユースケースの口。★ セッション型引数を持たない
+// ★ リクエストとレスポンスはこの中にネストする
+public interface ICreateUserCommandService
+    : ICommandService<ICreateUserCommandService.Req, ICreateUserCommandService.Res>
+{
+    sealed record Req(string UserName, OperateInfo OperateInfo) : ICommandServiceDTO;
+
+    sealed record Res(Guid UserId) : ICommandServiceDTO;
+}
+
+public sealed class CreateUserCommandService<TUserSession> : ICreateUserCommandService
+    where TUserSession : IDisposable
+{
+    public CreateUserCommandService(
+        ITransactionManager transactionManager,
+        IUserAggregateService<TUserSession> userAggregateService) { /* ... */ }
+}
+```
+
+こうすると呼び出し側はこうなる。
+
+```csharp
+// Presentation: セッション型がどこにも出てこない
+var commandService = scope.ServiceProvider.GetRequiredService<ICreateUserCommandService>();
+await commandService.ExecuteAsync(new ICreateUserCommandService.Req("alice", operateInfo));
+```
+
+得られるもの:
+
+1. **プレゼンテーション層がセッション型を書かずに済む。** 型引数が現れるのは DI 登録の 1 行だけ
+2. **ユースケースのテストで具象クラスを組み立てなくてよい。**
+   `IUserAggregateService<TSession>` を差し替えるだけで済む。具象の集約サービスを注入していると、
+   その先のリポジトリ実装まで用意する話になる
+3. **プレゼンテーション層のテストでユースケースを差し替えられる**
+
+**ドメインサービスとクエリサービスにも口を立てる。** これらはセッション型を呼び出し側に
+見せないので理由は上の 3 点ではなく、**リクエスト / レスポンスの置き場所**にある。
+`IDomainService<TReq>` はリクエスト DTO の型で一意に定まるので注入するだけなら口は要らないが、
+DTO を口の中に `Req` / `Res` としてネストしておくと、口から必ず辿れて対応が 1 対 1 に固定される
+（→ [use-case.md](use-case.md#リクエストとレスポンスは口の中にネストする)）。
+
+### 割り切って具体型を書く場合
+
+**単一プロジェクトの小さなアプリで、ストアが 1 つしかないと言い切れるなら**、
+セッション型を薄いクラスとして共有プロジェクトに置き、ドメイン層から直接参照する構成もありうる。
 
 ```
 MyApp.Abstractions/   ← AppSession（IDisposable を実装するだけの薄い型）
@@ -268,20 +451,9 @@ MyApp.Domain/         ← Abstractions を参照
 MyApp.Infrastructure/ ← Abstractions を参照し、AppSession の中身を実装
 ```
 
-セッション型を「トランザクションの識別子」程度の薄い型に保つのがコツ。
-`DbContext` をそのままセッションにすると、ドメイン層から EF Core が見えてしまう。
-
-**B. リポジトリインターフェースを `TSession` で開いておく**
-
-```csharp
-public interface IUserRepository<TSession> : IRepository<User, UserId, OperateInfo, TSession>
-    where TSession : IDisposable;
-```
-
-ドメイン層は具体的なセッション型を知らずに済むが、型引数が上まで波及する。
-アプリケーションが 1 つのセッション型しか使わないなら、A のほうが読みやすい。
-
-サンプルは単一プロジェクトなので、この分割は行っていない。
+型引数が上の層まで波及しないぶん読みやすい。ただし**上に挙げた利点を捨てる選択**であり、
+後から型引数に開き直すのはドメイン層とユースケース層の全面改修になる。
+迷ったら開いておくほうがよい。
 
 ---
 
@@ -296,7 +468,11 @@ public interface IUserRepository<TSession> : IRepository<User, UserId, OperateIn
 | 一覧を取りたい | `IQueryService`。リポジトリには足さない |
 | 見つからなかった | `Optional<T>.Empty`。例外にするのは上位層 |
 | 複数ストアに書きたい | できるが**アトミックではない**。設計で避ける |
-| ドメイン層がセッション型を参照してよいか | よい。分けたいなら共有プロジェクトへ |
+| ドメイン層に `AppSession` と書いてよいか | **書かない。** 型引数で受け取る |
+| セッション型の具体型が決まるのは | **プレゼンテーション層**（DI 登録）とインフラ層の実装 |
+| ユースケースの型引数名は | `TSession` ではなく `TUserSession` のように集約名を入れる |
+| 集約サービスをそのまま注入してよいか | **インターフェースを立てる。** `AggregateServiceBase` は実装の詳細 |
+| ユースケースの呼び出しに型引数が要るか | **要らない。** セッション型引数を持たない口を立てる |
 
 ## 関連
 
