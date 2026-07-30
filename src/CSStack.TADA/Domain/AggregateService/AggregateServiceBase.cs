@@ -39,8 +39,10 @@
 		/// Constructor
 		/// </summary>
 		/// <param name="repository">The repository of this aggregate</param>
+		/// <exception cref="ArgumentNullException"><paramref name="repository"/> is null.</exception>
 		public AggregateServiceBase(TRepository repository)
 		{
+			ArgumentNullException.ThrowIfNull(repository);
 			Repository = repository;
 		}
 
