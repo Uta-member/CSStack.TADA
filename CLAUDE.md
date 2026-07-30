@@ -46,6 +46,12 @@ NuGet パッケージ名は `CSStack.TADA`、`net8.0;net10.0` のマルチター
    なぜセッションを引き回すのかは → [docs/architecture.md](docs/architecture.md)
 8. **`ObjectNotFoundException` を投げるのはリポジトリではない。** 不在は
    `Optional<T>.Empty` で返り、それを異常とみなすかは集約サービス / ユースケースが決める
+9. **トランザクションは入れ子にできない。** 実行中の `ExecuteTransactionAsync` の本体から
+   同じマネージャーの `ExecuteTransactionAsync` を呼ぶと `NestedTransactionException`。
+   `ITransactionManager` は Scoped なので、**コマンドサービスが別のコマンドサービスを呼ぶと
+   これに当たる**。共通処理はドメインサービス / 集約サービスに切り出し、同じトランザクションの
+   本体からセッションを渡して呼ぶ。連続して 2 つのトランザクションを張るのは正当
+   → [docs/best-practices.md](docs/best-practices.md)
 9. **ドメイン層・ユースケース層に具体的なセッション型を書かない。**
    `IUserRepository : IRepository<User, UserId, OperateInfo, AppSession>` はコンパイルは通るが、
    ドメイン層がインフラ層の実トランザクション因子を名指しした時点で依存の向きが逆転し、
@@ -129,6 +135,7 @@ docs/                     ドキュメント
   architecture.md         設計思想。なぜ TSession を引き回すのか
   getting-started.md      ゼロから動かすまでの 7 ステップ（DI 登録を含む）
   best-practices.md       規約の一覧。間違い → 正しい形 → なぜ
+  api-reference.md        公開型 35 個と型引数の意味
   api-reference.md        公開型 35 個と型引数の意味
   domain-model.md         エンティティ / 値オブジェクト / リポジトリ / 集約
   use-case.md             3 種のサービスとトランザクションの境界
