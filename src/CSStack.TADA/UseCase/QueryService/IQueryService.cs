@@ -19,6 +19,25 @@
 	/// an <see cref="ITransactionManager"/>. When a read has to see the uncommitted state of a transaction
 	/// already in flight, take the session on the request DTO instead of beginning a second one.
 	/// </para>
+	/// <para>
+	/// <b>Declare an interface per query and nest its DTOs in it as <c>Req</c> and <c>Res</c>.</b> A query
+	/// service has no session type parameter to hide, so the reason is not the one behind
+	/// <see cref="ICommandService{TReq}"/>'s interface: it is that <c>IQueryService&lt;UserListRes&gt;</c>
+	/// identifies the query by its response type alone, which two different queries can share, and that
+	/// the DTOs should be reachable from the query rather than found by name. See
+	/// <see cref="IQueryServiceDTO"/>.
+	/// </para>
+	/// <example>
+	/// <code>
+	/// public interface ISearchUsersQueryService
+	///     : IQueryService&lt;ISearchUsersQueryService.Req, ISearchUsersQueryService.Res&gt;
+	/// {
+	///     sealed record Req(string NamePrefix) : IQueryServiceDTO;
+	///
+	///     sealed record Res(IReadOnlyList&lt;UserSummary&gt; Users) : IQueryServiceDTO;
+	/// }
+	/// </code>
+	/// </example>
 	/// </remarks>
 	public interface IQueryService<TReq, TRes> where TReq : IQueryServiceDTO where TRes : IQueryServiceDTO
 	{

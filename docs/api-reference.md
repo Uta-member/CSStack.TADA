@@ -1,6 +1,6 @@
 # API リファレンス
 
-公開型は **34 個**。すべてフラットな `CSStack.TADA` namespace にあるので、
+公開型は **35 個**。すべてフラットな `CSStack.TADA` namespace にあるので、
 `using CSStack.TADA;` の 1 行で全部使える。
 
 このページは「どの型が何のためにあるか」と「型引数の意味」の索引。
@@ -26,7 +26,7 @@
 | クエリサービス | [`IQueryService<TReq, TRes>`](#iqueryservicetreq-tres) / [`IQueryService<TRes>`](#iqueryservicetres) / [`IQueryServiceDTO`](#iqueryservicedto) |
 | トランザクション | [`ITransactionManager`](#itransactionmanager) / [`TransactionManager`](#transactionmanager) / [`TransactionSessions`](#transactionsessions) / [`ITransactionService`](#itransactionservice) / [`ITransactionService<TSession>`](#itransactionservicetsession) |
 | ユーティリティ | [`Optional<TValue>`](#optionaltvalue) / [`OptionalExtensions`](#optionalextensions) |
-| 例外 | [`TADAException`](#tadaexception) 以下 8 個（[例外](#例外)） |
+| 例外 | [`TADAException`](#tadaexception) 以下 9 個（[例外](#例外)） |
 
 ---
 
@@ -39,14 +39,19 @@
 | `TEntity` | 集約のエンティティ。1 集約に 1 つ | `IEntity<TEntityIdentifier>` | `User` |
 | `TEntityIdentifier` | エンティティの識別子。値オブジェクト推奨 | `notnull` | `UserId` |
 | `TOperateInfo` | **書き込みと一緒に記録する「誰が・いつ」。** 読み取り系は受け取らない | `notnull` | `OperateInfo` |
-| `TSession` | **トランザクションセッション。** 呼び出し側が渡す。実装側は begin / commit / dispose しない | `IDisposable` | `AppSession` |
-| `TRepository` | 集約のリポジトリ。1 集約に 1 つ | `IRepository<...>` | `IUserRepository` |
-| `TReq` | リクエスト DTO | 各 `~DTO` マーカー | `CreateUserReq` |
-| `TRes` | レスポンス DTO | 各 `~DTO` マーカー | `CreateUserRes` |
+| `TSession` | **トランザクションセッション。** 呼び出し側が渡す。実装側は begin / commit / dispose しない | `IDisposable` | `TSession` のまま開く（後述） |
+| `TRepository` | 集約のリポジトリ。1 集約に 1 つ | `IRepository<...>` | `IUserRepository<TSession>` |
+| `TReq` | リクエスト DTO。**そのサービスの口の中にネストする** | 各 `~DTO` マーカー | `ICreateUserCommandService.Req` |
+| `TRes` | レスポンス DTO。**同上** | 各 `~DTO` マーカー | `ICreateUserCommandService.Res` |
 | `TSelf` | **自分自身の型**（CRTP）。実装する型をそのまま渡す | 各インターフェース | `record UserId : ISingleValueObject<Guid, UserId>` |
 
 `TOperateInfo` と `TSession` の詳しい説明は [domain-model.md](domain-model.md#toperateinfo-は誰がいつ) と
 [architecture.md](architecture.md#なぜ-tsession-を全レイヤーに引き回すのか)。
+
+**`TSession` に具体型を渡すのはインフラ層の実装とプレゼンテーション層の DI 登録だけ。**
+ドメイン層・ユースケース層の型定義では `TSession` のまま開いておき、ユースケースと
+ドメインサービスでは名前を `T[集約名]Session`（`TUserSession` など）にする
+（→ [architecture.md](architecture.md#ドメイン層に具体的なセッション型を書かない)）。
 
 ---
 
@@ -153,6 +158,8 @@ ValueTask SaveAsync(
   `ObjectAlreadyExistException` も `ObjectNotFoundException` も投げない
 - **検索系メソッドを足さない。** 一覧・条件検索は `IQueryService`
 - セッションは引数で受け取るだけ。begin / commit / dispose しない
+- **`TSession` に具体型を渡さない。** 派生インターフェースも
+  `IUserRepository<TSession>` のように開いたままにし、閉じるのは実装（インフラ層）
 - 書き込みが確定するのは `ITransactionManager` が commit したときで、メソッドが戻った時点ではない
 
 ### `IRepositoryDeletable<TEntity, TEntityIdentifier, TOperateInfo, TSession>`
@@ -188,6 +195,25 @@ TADA の集約の定義を型で書いている。
 不在は `Optional<T>.Empty` を返す。`ObjectNotFoundException` に変えるのは、
 エンティティの存在を要求する具体的なメソッドの側。
 
+**これを継承した集約サービスのインターフェースを宣言し、その実装を
+`AggregateServiceBase` の派生クラスとして書く。** 上の層に注入するのはインターフェース側。
+
+```csharp
+public interface IUserAggregateService<TSession>
+    : IAggregateService<User, UserId, IUserRepository<TSession>, OperateInfo, TSession>
+    where TSession : IDisposable
+{
+    ValueTask RenameAsync(
+        TSession session, UserId identifier, UserName newName, OperateInfo operateInfo,
+        CancellationToken ct = default);
+}
+```
+
+**この口は実質的に集約ルート。並べるのはドメインの操作だけで、`SaveAsync` のような
+汎用的な操作は置かない。** 「取得する → 変更する → 保存する」を 1 つの操作に閉じ、
+エンティティを上の層へ出さない
+→ [best-practices.md](best-practices.md#13-集約サービスに-saveasync-のような汎用的な操作を置かない)
+
 ### `AggregateServiceBase<TEntity, TEntityIdentifier, TRepository, TOperateInfo, TSession>`
 
 `IAggregateService` の基底クラス。実装済みなのは `GetEntityByIdentifierAsync`
@@ -196,9 +222,18 @@ TADA の集約の定義を型で書いている。
 集約のルール（保存・削除・不在時の扱い）は派生クラスに書く。
 
 ```csharp
-public sealed class UserAggregateService
-    : AggregateServiceBase<User, UserId, IUserRepository, OperateInfo, AppSession>
+public sealed class UserAggregateService<TSession>
+    : AggregateServiceBase<User, UserId, IUserRepository<TSession>, OperateInfo, TSession>,
+    IUserAggregateService<TSession>
+    where TSession : IDisposable
 ```
+
+- `TRepository` と `TSession` に具体型を渡さない。具体型が決まるのは DI 登録
+  （プレゼンテーション層）
+  → [architecture.md](architecture.md#ドメイン層に具体的なセッション型を書かない)
+- **この基底クラスは実装の詳細。** 上の層には
+  `IAggregateService` を継承した自前のインターフェースを見せる
+  → [best-practices.md](best-practices.md#12-集約サービスとユースケースはインターフェースを立ててから実装する)
 
 ---
 
@@ -216,6 +251,17 @@ ValueTask ExecuteAsync(TReq req, CancellationToken cancellationToken = default);
 - **セッション引数が無いので、DTO にセッションを載せて渡す**
 - 1 エンティティで完結するルールはエンティティ自身に、
   1 集約で完結するなら集約サービスに、オーケストレーションはコマンドサービスに置く
+- **専用の口を立て、リクエストをその中にネストする**
+
+```csharp
+public interface IUserNameUniquenessService<TUserSession>
+    : IDomainService<IUserNameUniquenessService<TUserSession>.Req>
+    where TUserSession : IDisposable
+{
+    sealed record Req(TUserSession Session, UserName Name, UserId ExceptUserId)
+        : IDomainServiceDTO;
+}
+```
 
 ### `IDomainService<TReq, TRes>`
 
@@ -223,7 +269,7 @@ ValueTask ExecuteAsync(TReq req, CancellationToken cancellationToken = default);
 
 ### `IDomainServiceDTO`
 
-ドメインサービスの DTO マーカー。`record` で宣言する。
+ドメインサービスの DTO マーカー。`record` で宣言し、そのドメインサービスの口の中にネストする。
 **3 種の DTO のうち、これだけがセッションを持つ。** エンティティや値オブジェクトも持ってよい。
 
 → [use-case.md](use-case.md#3-種のサービスの使い分け)
@@ -246,6 +292,27 @@ ValueTask ExecuteAsync(TReq req, CancellationToken cancellationToken = default);
 規約であって強制ではない（基底クラスは無い）が、`ITransactionManager` に
 まったく触らないコマンドサービスはほぼ間違い。
 
+**これを継承した、セッション型引数を持たないインターフェースをユースケースごとに立て、
+リクエストとレスポンスをその中にネストする。**
+実装はセッション型を型引数に持つので、この口が無いとプレゼンテーション層が
+`CreateUserCommandService<AppSession>` を名指しすることになる。
+
+```csharp
+public interface ICreateUserCommandService
+    : ICommandService<ICreateUserCommandService.Req, ICreateUserCommandService.Res>
+{
+    sealed record Req(string UserName, OperateInfo OperateInfo) : ICommandServiceDTO;
+
+    sealed record Res(Guid UserId) : ICommandServiceDTO;
+}
+
+public sealed class CreateUserCommandService<TUserSession> : ICreateUserCommandService
+    where TUserSession : IDisposable { /* ... */ }
+```
+
+→ [best-practices.md](best-practices.md#12-集約サービスとユースケースはインターフェースを立ててから実装する)、
+[best-practices.md](best-practices.md#14-リクエスト--レスポンスはサービスの口の中にネストする)
+
 ### `ICommandService<TReq, TRes>`
 
 採番した識別子などを返すコマンドサービス。
@@ -255,7 +322,8 @@ ValueTask ExecuteAsync(TReq req, CancellationToken cancellationToken = default);
 
 ### `ICommandServiceDTO`
 
-コマンドサービスの DTO マーカー。`record` で宣言する。
+コマンドサービスの DTO マーカー。`record` で宣言し、そのユースケースの口の中に
+`Req` / `Res` としてネストする。
 アプリケーションの境界に立つので、素の引数と操作情報だけを持つ。
 **セッションもエンティティも持たない。**
 
@@ -281,6 +349,18 @@ ValueTask<TRes> ExecuteAsync(TReq req, CancellationToken cancellationToken = def
   自前の接続を持つ
 - 実行中のトランザクションの未コミット状態を読む必要があるときだけ、
   リクエスト DTO にセッションを載せる（2 つ目のトランザクションを開始しない）
+- **クエリごとに口を立て、DTO をその中にネストする。** セッション型引数は無いので理由は
+  コマンドサービスとは違い、レスポンス型をそのクエリに固定するため
+
+```csharp
+public interface ISearchUsersQueryService
+    : IQueryService<ISearchUsersQueryService.Req, ISearchUsersQueryService.Res>
+{
+    sealed record Req(string NamePrefix) : IQueryServiceDTO;
+
+    sealed record Res(IReadOnlyList<UserSummary> Users) : IQueryServiceDTO;
+}
+```
 
 ### `IQueryService<TRes>`
 
@@ -297,7 +377,8 @@ ValueTask<TRes> ExecuteAsync(CancellationToken cancellationToken = default);
 
 ### `IQueryServiceDTO`
 
-クエリサービスの DTO マーカー。`record` で宣言する。
+クエリサービスの DTO マーカー。`record` で宣言し、そのクエリの口の中にネストする
+（複数のクエリで共有する読み取りモデルだけは外に置く）。
 呼び出し側の都合に合わせた素のデータを持つ。**エンティティを返さない。**
 
 → [use-case.md](use-case.md#クエリサービスはリポジトリを通さない)
@@ -333,20 +414,32 @@ ValueTask ExecuteTransactionAsync(
 | `ExecuteTransactionAsync<TSession1>` 〜 `<TSession1, TSession2, TSession3>` | begin → 本体 → commit を一括で行う。**通常はこれ** |
 | `ExecuteTransactionAsync(ImmutableList<Type>, ...)` | セッション型が 4 個以上、または実行時に決まる場合 |
 | `BeginTransactionAsync<TSession>()` / `BeginTransactionAsync(Type)` | 個別に開始。開始済みなら何もしない |
-| `BeginTransactionsAsync(ImmutableList<Type>)` | 複数をまとめて開始 |
+| `BeginTransactionsAsync(ImmutableList<Type>)` | 複数をまとめて開始。途中で失敗したら開始済みを rollback + dispose して再スロー |
 | `CommitTransactionsAsync()` | 開始順に commit し、全部 dispose する |
 | `RollbackTransactionsAsync()` | 逆順に rollback し、全部 dispose する |
 | `GetSession<TSession>()` / `GetSession(Type)` | 開始済みセッションを取得。無ければ `TransactionSessionNotFoundException` |
 | `TryGetSession<TSession>(out TSession)` | 例外を投げない版 |
 | `GetTransactionService<TSession>()` / `GetTransactionService(Type)` | 登録済みの `ITransactionService` を取得 |
 
-`beforeRollbackHandler` はロールバック**前**に呼ばれる。まだデータがセッションから
-見える状態で観測できるのが目的なので、診断情報の採取に使う。
+`beforeRollbackHandler` は失敗したときに呼ばれる。診断情報の採取に使う。
 ここで例外を投げてもロールバックは止まらない（例外は元の失敗と一緒に報告される）。
-本体が成功して commit が失敗したときにも呼ばれる。
+
+**呼ばれる位置は「何が失敗したか」で変わる。**
+
+| 失敗した場所 | 呼ばれる位置 | ハンドラから見たセッション |
+|---|---|---|
+| 本体（`transactionFunction`）／ begin | ロールバック**前** | まだ生きている。データを観測できる |
+| commit | ロールバック**後** | **既に `Dispose` 済み** |
+
+commit 失敗の経路が後になるのは、`CommitTransactionsAsync` が内部でロールバックと
+`Dispose` を済ませてから throw するため。**セッションを触る診断コードは、
+この経路では Dispose 済みであることを前提に書く**（そこで出た例外も
+元の失敗と一緒に報告されるので握り潰されはしない）。
 
 **契約:**
 
+- **入れ子にできない。** 実行中の本体（または `beforeRollbackHandler`）から同じマネージャーの
+  `ExecuteTransactionAsync` を呼ぶと `NestedTransactionException`。連続して呼ぶのは正当
 - **セッションの所有権はマネージャーにある。** commit 後・rollback 後・例外時の
   いずれの経路でも `Dispose` する
 - **複数セッションの commit はアトミックではない。** 2 相コミットではない
@@ -379,10 +472,13 @@ IReadOnlyDictionary<Type, IDisposable> Sessions { get; }
 ```
 
 **渡された呼び出しの中でのみ有効。** セッションはマネージャーが `Dispose` するので、
-このオブジェクトをキャプチャして後で使ってはいけない。
+このオブジェクトをキャプチャして後で使ってはいけない。呼び出し開始時点の**コピー**なので、
+commit 後も同じセッションを指し続ける（＝ Dispose 済みのセッションを返す）。
 
 `ExecuteTransactionAsync` に渡していないセッション型を要求すると
-`TransactionSessionNotFoundException`。
+`TransactionSessionNotFoundException`。本体の中で
+`ITransactionManager.BeginTransactionAsync<TOther>()` を呼んで別のセッションを開始しても、
+この集合からは取得できない（マネージャー側の `GetSession<TOther>()` からは取得できる）。
 
 ### `ITransactionService`
 
@@ -469,6 +565,7 @@ services.AddScoped<ITransactionService<AppSession>, AppTransactionService>();
 Exception
 └─ TADAException
    ├─ DomainInvalidOperationException
+   ├─ NestedTransactionException
    ├─ ObjectNotFoundException
    ├─ ObjectAlreadyExistException
    ├─ TransactionSessionNotFoundException
@@ -546,6 +643,20 @@ throw new ValueObjectLengthException(
 
 原因はほぼ常に、`ExecuteTransactionAsync<...>` の型引数にそのセッション型を
 渡していないこと。
+
+### `NestedTransactionException`
+
+**実行中のトランザクションの中から、同じマネージャーでトランザクションを開始した。**
+
+`ITransactionManager` は Scoped 登録なので、コマンドサービスが別のコマンドサービスを
+呼ぶと同一インスタンスに行き着く。セッションはマネージャー単位で保持していて
+「どの `ExecuteTransactionAsync` が開始したか」を区別しないため、内側の commit が
+外側のセッションまで確定・`Dispose` してしまう。それを防ぐために**入れ子を禁止**している。
+
+**直し方:** 共通処理をドメインサービス／集約サービスに切り出し、
+同じ `ExecuteTransactionAsync` の本体からセッションを渡して呼ぶ。
+
+→ [best-practices.md](best-practices.md#5-トランザクションを開始してよいのは-icommandservice-だけ)
 
 → [domain-model.md](domain-model.md#例外を投げる層)
 

@@ -46,6 +46,55 @@ NuGet パッケージ名は `CSStack.TADA`、`net8.0;net10.0` のマルチター
    なぜセッションを引き回すのかは → [docs/architecture.md](docs/architecture.md)
 8. **`ObjectNotFoundException` を投げるのはリポジトリではない。** 不在は
    `Optional<T>.Empty` で返り、それを異常とみなすかは集約サービス / ユースケースが決める
+9. **トランザクションは入れ子にできない。** 実行中の `ExecuteTransactionAsync` の本体から
+   同じマネージャーの `ExecuteTransactionAsync` を呼ぶと `NestedTransactionException`。
+   `ITransactionManager` は Scoped なので、**コマンドサービスが別のコマンドサービスを呼ぶと
+   これに当たる**。共通処理はドメインサービス / 集約サービスに切り出し、同じトランザクションの
+   本体からセッションを渡して呼ぶ。連続して 2 つのトランザクションを張るのは正当
+   → [docs/best-practices.md](docs/best-practices.md)
+9. **ドメイン層・ユースケース層に具体的なセッション型を書かない。**
+   `IUserRepository : IRepository<User, UserId, OperateInfo, AppSession>` はコンパイルは通るが、
+   ドメイン層がインフラ層の実トランザクション因子を名指しした時点で依存の向きが逆転し、
+   TADA と DDD の利点がほぼ消える。**セッション型は型引数として受け取る**
+   （`IUserRepository<TSession>` / `UserAggregateService<TSession>`）。
+   名前は、リポジトリと集約サービスは扱うリポジトリが 1 つなので `TSession`、
+   **ドメインサービスとユースケースは複数集約を跨ぎうるので `T[集約名]Session`**
+   （`TUserSession` など。1 集約しか扱っていなくてもこう書く。集約ごとにストアが違えば
+   セッション型も違うため）。**具体型が決まるのはインフラ層の実装と、
+   ユースケースとリポジトリを結びつけるプレゼンテーション層の DI 登録だけ**
+   → [docs/architecture.md](docs/architecture.md)
+10. **4 種のサービスはすべてインターフェースを立ててから実装する。**
+    集約サービスは `IAggregateService` を継承した口
+    （`IUserAggregateService<TSession>`）を宣言し、その実装を `AggregateServiceBase` の
+    派生クラスとして書く。**基底クラスは実装の詳細**で、上の層に見せる契約ではない
+    （具象を注入すると、ユースケースのテストが集約サービスとリポジトリ実装の組み立てになる）。
+    ユースケースは**セッション型引数を持たない口**（`ICreateUserCommandService :
+    ICommandService<...>`）を立てる。こうするとプレゼンテーション層は
+    `<AppSession>` を書かずに解決・実行でき、型引数が現れるのは DI 登録の 1 行だけになる。
+    ドメインサービスとクエリサービスにも口を立てる（理由は 12 の DTO の置き場所）
+    → [docs/best-practices.md](docs/best-practices.md)
+11. **集約サービスの口に `SaveAsync` のような汎用的な操作を置かない。**
+    `IAggregateService` を継承した口は実質的に集約ルートで、並ぶメソッドが
+    「この集約に何ができるか」の一覧になる。何でも受け取る `SaveAsync` が `RegisterAsync` と
+    並んでいれば呼ぶ側はそちらを選び、「既に居たら失敗」が素通りして upsert で黙って上書きされる。
+    **「取得する → 変更する → 保存する」は `RenameAsync` のようなドメインの語彙の
+    1 つの操作に閉じる。** エンティティを上の層へ返さない（返すと、書き換えても保存する手段が
+    口に無い状態が作れる）。`GetRequiredAsync` のようなヘルパーは実装側で `private` に留める
+    → [docs/best-practices.md](docs/best-practices.md)
+12. **リクエスト / レスポンスはそれを使う口の中に `Req` / `Res` としてネストする。**
+    `ICommandService` / `IQueryService` / `IDomainService` を継承した時点で
+    「メソッド 1 つ・リクエスト 1 型・レスポンス 1 型」が確定するので、DTO は口と 1 対 1 に対応する。
+    `ICreateUserCommandService.Req` と口から辿れる位置に置く。名前空間に平らに置くと、
+    別のユースケースの DTO を渡しても型が合えばコンパイルが通る。
+    ドメインサービスの `Req` は口の型引数（`TUserSession`）をそのまま使ってセッションを載せる。
+    複数の口で共有する読み取りモデルは 1 対 1 ではないのでネストしない
+    → [docs/use-case.md](docs/use-case.md)
+13. **トランザクションは入れ子にできない。** 実行中の `ExecuteTransactionAsync` の本体から
+   同じマネージャーの `ExecuteTransactionAsync` を呼ぶと `NestedTransactionException`。
+   `ITransactionManager` は Scoped なので、**コマンドサービスが別のコマンドサービスを呼ぶと
+   これに当たる**。共通処理はドメインサービス / 集約サービスに切り出し、同じトランザクションの
+   本体からセッションを渡して呼ぶ。連続して 2 つのトランザクションを張るのは正当
+   → [docs/best-practices.md](docs/best-practices.md)
 
 ## ビルド・テスト
 
@@ -59,8 +108,6 @@ dotnet run --project samples/CSStack.TADA.Sample   # サンプルの動作確認
 
 警告ゼロを維持すること。`Directory.Build.props` で `TreatWarningsAsErrors` を有効にしているため、
 XML doc の破損（CS1570 / CS1574）や記述漏れ（CS1591）は**ビルドエラーになる**。
-例外は `NU1902` / `NU1903`（依存パッケージの既知の脆弱性）で、これはこちらでは直せないため
-`WarningsNotAsErrors` で警告のままにしてある。
 
 **`dotnet format --verify-no-changes` も CI のゲート**になっている。インデント・改行コード
 （作業ツリーは CRLF。`.gitattributes` の `eol=crlf` により OS を問わずそうなる）・命名規則の
@@ -88,7 +135,8 @@ docs/                     ドキュメント
   architecture.md         設計思想。なぜ TSession を引き回すのか
   getting-started.md      ゼロから動かすまでの 7 ステップ（DI 登録を含む）
   best-practices.md       規約の一覧。間違い → 正しい形 → なぜ
-  api-reference.md        公開型 34 個と型引数の意味
+  api-reference.md        公開型 35 個と型引数の意味
+  api-reference.md        公開型 35 個と型引数の意味
   domain-model.md         エンティティ / 値オブジェクト / リポジトリ / 集約
   use-case.md             3 種のサービスとトランザクションの境界
   optional.md             Optional<T> の三状態

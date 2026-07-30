@@ -21,8 +21,12 @@ An ordinary layered domain architecture — entities, value objects, repositorie
 ```csharp
 // Is this inside a transaction? Read the signature — that is the whole point.
 ValueTask<Optional<User>> FindByIdentifierAsync(
-    AppSession session, UserId identifier, CancellationToken cancellationToken = default);
+    TSession session, UserId identifier, CancellationToken cancellationToken = default);
 ```
+
+What travels through the layers is the **type parameter**, not the concrete session type: domain
+and use case code never names `AppSession`. Only the infrastructure implementation and the DI
+registration do.
 
 ### Why pass `TSession` through every layer
 
@@ -152,14 +156,17 @@ user is still the same user.
 > A strongly-typed identifier (`UserId` as a value object) is recommended over a bare `Guid`;
 > [samples/](samples/) shows that shape.
 
-### 4. Repository — absence is `Optional<T>.Empty`, never `null`
+### 4. Repository — the interface keeps `TSession` open; absence is `Optional<T>.Empty`
 
 ```csharp
 public sealed record OperateInfo(string OperatorId, DateTimeOffset OperatedAt);
 
-public interface IUserRepository : IRepository<User, Guid, OperateInfo, AppSession>;
+// Domain layer. Writing AppSession here would make the domain depend on infrastructure.
+public interface IUserRepository<TSession> : IRepository<User, Guid, OperateInfo, TSession>
+    where TSession : IDisposable;
 
-public sealed class UserRepository : IUserRepository
+// Infrastructure layer. The implementation is what closes the type parameter.
+public sealed class UserRepository : IUserRepository<AppSession>
 {
     public ValueTask<Optional<User>> FindByIdentifierAsync(
         AppSession session, Guid identifier, CancellationToken cancellationToken = default)
@@ -186,6 +193,12 @@ public sealed class UserRepository : IUserRepository
 
 The write becomes durable when `ITransactionManager` commits, not when this method returns.
 Listing and searching do **not** belong here — that is `IQueryService`.
+
+> **Never write a concrete session type in a domain or use case declaration.** It compiles, but it
+> inverts the dependency direction and costs you most of what TADA and DDD are for. Keep it as a
+> type parameter — `TSession` for a repository or aggregate service, `T<Aggregate>Session`
+> (e.g. `TUserSession`) once a layer can span aggregates, since different aggregates may live in
+> different stores. See [docs/architecture.md](docs/architecture.md).
 
 ### 5. Transaction service — one per session type, and **never dispose the session**
 
@@ -216,21 +229,30 @@ public sealed class AppTransactionService : ITransactionService<AppSession>
 ### 6. Command service — **this is the transaction boundary**
 
 ```csharp
-public sealed record CreateUserReq(string UserName, OperateInfo OperateInfo) : ICommandServiceDTO;
+// The interface takes no session type parameter, so callers never name AppSession.
+// The request lives inside it: one use case, one request type.
+public interface ICreateUserCommandService : ICommandService<ICreateUserCommandService.Req>
+{
+    sealed record Req(string UserName, OperateInfo OperateInfo) : ICommandServiceDTO;
+}
 
-public sealed class CreateUserCommandService : ICommandService<CreateUserReq>
+// TUserSession, not TSession: a use case may span aggregates that live in different stores.
+public sealed class CreateUserCommandService<TUserSession> : ICreateUserCommandService
+    where TUserSession : IDisposable
 {
     private readonly ITransactionManager _transactionManager;
-    private readonly IUserRepository _repository;
+    private readonly IUserRepository<TUserSession> _repository;
 
-    public CreateUserCommandService(ITransactionManager transactionManager, IUserRepository repository)
+    public CreateUserCommandService(
+        ITransactionManager transactionManager, IUserRepository<TUserSession> repository)
         => (_transactionManager, _repository) = (transactionManager, repository);
 
-    public ValueTask ExecuteAsync(CreateUserReq req, CancellationToken cancellationToken = default)
-        => _transactionManager.ExecuteTransactionAsync<AppSession>(
+    public ValueTask ExecuteAsync(
+        ICreateUserCommandService.Req req, CancellationToken cancellationToken = default)
+        => _transactionManager.ExecuteTransactionAsync<TUserSession>(
             async (sessions, token) =>
             {
-                var session = sessions.GetSession<AppSession>();
+                var session = sessions.GetSession<TUserSession>();
 
                 // Untrusted input becomes a value object here; Create throws when it is invalid
                 var user = User.Create(Guid.NewGuid(), UserName.Create(req.UserName));
@@ -241,6 +263,21 @@ public sealed class CreateUserCommandService : ICommandService<CreateUserReq>
 ```
 
 Nothing below this layer starts a transaction. Throwing inside the body rolls back; returning commits.
+
+> **Declare an interface per service, and nest its DTOs in it as `Req` and `Res`.** The one above
+> carries no session type parameter, so presentation code resolves `ICreateUserCommandService` and
+> never writes `<AppSession>` — the type argument appears only in the DI registration below. The same
+> applies to aggregate services: derive an `IUserAggregateService<TSession>` from
+> `IAggregateService<...>` and implement it with an `AggregateServiceBase<...>` subclass, so a use
+> case test can substitute the interface instead of building the concrete service and its repository.
+> Domain and query services get an interface too — not to hide a session type, but because deriving
+> from `ICommandService` / `IQueryService` / `IDomainService` already fixes one request and one
+> response per service, so that is where those types belong.
+>
+> **Do not put a general `SaveAsync` on an aggregate service.** Its interface is in practice the
+> aggregate root, and a method that accepts any entity is the one callers will reach for, bypassing
+> the rule the named operation was holding. Close each "read, change, write" round trip inside one
+> named operation (`RenameAsync`) instead. See [docs/best-practices.md](docs/best-practices.md).
 
 ### 7. Registration — the step that trips everyone up
 
@@ -256,8 +293,10 @@ services.AddScoped<ITransactionManager, TransactionManager>();
 // Register one per session type. Without it TransactionManager throws InvalidOperationException.
 services.AddScoped<ITransactionService<AppSession>, AppTransactionService>();
 
-services.AddScoped<IUserRepository, UserRepository>();
-services.AddScoped<ICommandService<CreateUserReq>, CreateUserCommandService>();
+// This registration is the only place the session type is decided: it binds the use case's
+// TUserSession to the repository's TSession. Presentation layer, and nowhere else.
+services.AddScoped<IUserRepository<AppSession>, UserRepository>();
+services.AddScoped<ICreateUserCommandService, CreateUserCommandService<AppSession>>();
 
 var provider = services.BuildServiceProvider();
 ```
@@ -267,9 +306,9 @@ var provider = services.BuildServiceProvider();
 ```csharp
 using (var scope = provider.CreateScope())
 {
-    var createUser = scope.ServiceProvider.GetRequiredService<ICommandService<CreateUserReq>>();
+    var createUser = scope.ServiceProvider.GetRequiredService<ICreateUserCommandService>();
     await createUser.ExecuteAsync(
-        new CreateUserReq("alice", new OperateInfo("operator-1", DateTimeOffset.UtcNow)));
+        new ICreateUserCommandService.Req("alice", new OperateInfo("operator-1", DateTimeOffset.UtcNow)));
 }
 
 foreach (var row in provider.GetRequiredService<UserStore>().Rows.Values)
@@ -299,11 +338,15 @@ Domain          Entity / ValueObject / IRepository        — never starts a tra
 Infrastructure  repository impls, ITransactionService<TSession>, the session type
 ```
 
+The session type follows the same direction: UseCase and Domain only ever see a type parameter,
+Infrastructure defines the concrete type and closes it in the implementation, and Presentation ties
+the two together in the DI registration.
+
 ---
 
 ## Components
 
-All 34 public types. Details are behind the links.
+All 35 public types. Details are behind the links.
 
 **Entities** — [docs/domain-model.md](docs/domain-model.md)
 
@@ -378,6 +421,7 @@ All 34 public types. Details are behind the links.
 | `ValueObjectNullException` | The value was null |
 | `ValueObjectLengthException` | Length out of range; carries `MinLength` / `MaxLength` / `CurrentLength` |
 | `TransactionSessionNotFoundException` | A session was requested before it was begun |
+| `NestedTransactionException` | A transaction was started inside another one on the same manager |
 
 ---
 
@@ -391,10 +435,30 @@ The full list with wrong/right code is in [docs/best-practices.md](docs/best-pra
 2. **Register `TransactionManager` as scoped.** It is not thread-safe and holds the in-flight sessions
 3. **Never dispose the session in `ITransactionService`.** The manager owns it on every path
 4. **Commits across multiple sessions are not atomic.** Not a two-phase commit coordinator
-5. **Only `ICommandService` starts transactions**
+5. **Only `ICommandService` starts transactions**, and **never nested.** A command service calling
+   another command service shares the scoped manager and throws `NestedTransactionException`; extract
+   the shared work into a domain service and call it from the same transaction body
 6. **Repositories never throw `ObjectNotFoundException`.** Absence is a normal result
 7. **Never add query methods to `IRepository`.** Listing and searching belong to `IQueryService`
 8. **Validate in `Create`, not in `Reconstruct`.** `Reconstruct` restores data written under older rules
+9. **Never name a concrete session type in the domain or use case layer.** Take it as a type
+   parameter — `TSession` for repositories and aggregate services, `T<Aggregate>Session` for layers
+   that can span aggregates — and let the infrastructure implementation and the DI registration
+   pick the concrete type. Baking `AppSession` into a domain interface compiles and inverts the
+   dependency direction
+10. **Declare an interface for every service, then implement it.** Injecting an
+    `AggregateServiceBase<...>` subclass directly forces every use case test to build that class and
+    its repository; resolving a use case through `ICommandService<TReq, TRes>` forces presentation
+    code to name `CreateUserCommandService<AppSession>`. Domain and query services get an interface
+    too — as the home of their DTOs (11)
+11. **Nest the request and response in the interface that uses them, as `Req` and `Res`.** Deriving
+    from `ICommandService` and friends already fixes one request type and one response type per
+    service, so the DTOs correspond one to one with the interface. Left flat in the namespace they
+    cannot be reached from it, and another use case's request still type-checks
+12. **Do not put a general `SaveAsync` on an aggregate service.** That interface is in practice the
+    aggregate root; a method accepting any entity is the one callers reach for, bypassing the rule
+    `RegisterAsync` was holding. Close "read, change, write" inside one named operation
+    (`RenameAsync`)
 
 ---
 
@@ -405,7 +469,7 @@ The full list with wrong/right code is in [docs/best-practices.md](docs/best-pra
 | [docs/architecture.md](docs/architecture.md) | **Why `TSession` is passed everywhere**; differences from DDD / Clean Architecture |
 | [docs/getting-started.md](docs/getting-started.md) | Zero to running, in 7 steps. DI registration included |
 | [docs/best-practices.md](docs/best-practices.md) | Every rule, with wrong/right code |
-| [docs/api-reference.md](docs/api-reference.md) | All 34 public types and the meaning of each type parameter |
+| [docs/api-reference.md](docs/api-reference.md) | All 35 public types and the meaning of each type parameter |
 | [docs/domain-model.md](docs/domain-model.md) | Entities, value objects, repositories, aggregates |
 | [docs/use-case.md](docs/use-case.md) | The three service families and where the transaction begins |
 | [docs/optional.md](docs/optional.md) | The three states of `Optional<T>` |
@@ -443,8 +507,12 @@ namespace はフラットな `CSStack.TADA` の 1 つだけなので、`using CS
 ```csharp
 // このメソッドはトランザクションの中で動くのか？ → シグネチャを読めば分かる
 ValueTask<Optional<User>> FindByIdentifierAsync(
-    AppSession session, UserId identifier, CancellationToken cancellationToken = default);
+    TSession session, UserId identifier, CancellationToken cancellationToken = default);
 ```
+
+レイヤーを貫くのは**型引数**であって、セッションの具体型ではありません。
+ドメイン層とユースケース層は `AppSession` という名前を知らず、
+具体型を名指しするのはインフラ層の実装と DI 登録だけです。
 
 ### なぜ `TSession` を全レイヤーに引き回すのか
 
@@ -581,9 +649,12 @@ public sealed class User : EntityBase<User, Guid>
 ```csharp
 public sealed record OperateInfo(string OperatorId, DateTimeOffset OperatedAt);
 
-public interface IUserRepository : IRepository<User, Guid, OperateInfo, AppSession>;
+// ドメイン層。ここに AppSession と書くとドメインがインフラに依存してしまう
+public interface IUserRepository<TSession> : IRepository<User, Guid, OperateInfo, TSession>
+    where TSession : IDisposable;
 
-public sealed class UserRepository : IUserRepository
+// インフラ層。型引数を閉じるのは実装の側
+public sealed class UserRepository : IUserRepository<AppSession>
 {
     public ValueTask<Optional<User>> FindByIdentifierAsync(
         AppSession session, Guid identifier, CancellationToken cancellationToken = default)
@@ -610,6 +681,12 @@ public sealed class UserRepository : IUserRepository
 
 書き込みが確定するのは `ITransactionManager` がコミットしたときで、このメソッドが戻った時点ではありません。
 一覧・条件検索のメソッドはここに足しません（`IQueryService` の仕事です）。
+
+> **ドメイン層・ユースケース層の宣言に具体的なセッション型を書かないこと。** コンパイルは通りますが、
+> 依存の向きが逆転し、TADA と DDD の利点がほぼ消えます。セッション型は型引数のまま受け取り、
+> リポジトリ・集約サービスは `TSession`、集約をまたぎうる層（ドメインサービス・ユースケース）は
+> `T[集約名]Session`（`TUserSession` など）と名付けます。集約ごとにストアが違えば
+> セッション型も違うためです。→ [docs/architecture.md](docs/architecture.md)
 
 ### 5. トランザクションサービス —— セッション型ごとに 1 つ。**Dispose しない**
 
@@ -640,21 +717,30 @@ public sealed class AppTransactionService : ITransactionService<AppSession>
 ### 6. コマンドサービス —— **ここがトランザクションの境界**
 
 ```csharp
-public sealed record CreateUserReq(string UserName, OperateInfo OperateInfo) : ICommandServiceDTO;
+// 口にはセッション型引数を持たせない。呼び出し側は AppSession を書かずに済む
+// リクエストは口の中にネストする。1 ユースケース = リクエスト 1 型なので対応が固定される
+public interface ICreateUserCommandService : ICommandService<ICreateUserCommandService.Req>
+{
+    sealed record Req(string UserName, OperateInfo OperateInfo) : ICommandServiceDTO;
+}
 
-public sealed class CreateUserCommandService : ICommandService<CreateUserReq>
+// TSession ではなく TUserSession。ユースケースは複数の集約を跨ぎ、ストアが違えば型も違う
+public sealed class CreateUserCommandService<TUserSession> : ICreateUserCommandService
+    where TUserSession : IDisposable
 {
     private readonly ITransactionManager _transactionManager;
-    private readonly IUserRepository _repository;
+    private readonly IUserRepository<TUserSession> _repository;
 
-    public CreateUserCommandService(ITransactionManager transactionManager, IUserRepository repository)
+    public CreateUserCommandService(
+        ITransactionManager transactionManager, IUserRepository<TUserSession> repository)
         => (_transactionManager, _repository) = (transactionManager, repository);
 
-    public ValueTask ExecuteAsync(CreateUserReq req, CancellationToken cancellationToken = default)
-        => _transactionManager.ExecuteTransactionAsync<AppSession>(
+    public ValueTask ExecuteAsync(
+        ICreateUserCommandService.Req req, CancellationToken cancellationToken = default)
+        => _transactionManager.ExecuteTransactionAsync<TUserSession>(
             async (sessions, token) =>
             {
-                var session = sessions.GetSession<AppSession>();
+                var session = sessions.GetSession<TUserSession>();
 
                 // 外部入力はここで値オブジェクトに変換する。不正なら Create が例外を投げる
                 var user = User.Create(Guid.NewGuid(), UserName.Create(req.UserName));
@@ -666,6 +752,21 @@ public sealed class CreateUserCommandService : ICommandService<CreateUserReq>
 
 これより下の層はトランザクションを開始しません。
 本体が例外を投げればロールバックされ、最後まで通ればコミットされます。
+
+> **サービスごとにインターフェースを立て、DTO はその中に `Req` / `Res` としてネストします。** 上の
+> `ICreateUserCommandService` はセッション型引数を持たないので、プレゼンテーション層は
+> これを解決するだけで `<AppSession>` を書かずに済みます（型引数が現れるのは下の DI 登録だけ）。
+> 集約サービスも同じで、`IAggregateService<...>` を継承した `IUserAggregateService<TSession>` を
+> 宣言し、`AggregateServiceBase<...>` の派生クラスで実装します。こうしておけば、
+> ユースケースのテストで集約サービスの具象クラスとリポジトリ実装を組み立てずに済みます。
+> ドメインサービスとクエリサービスにも口を立てます。理由はセッション型を隠すためではなく、
+> `ICommandService` / `IQueryService` / `IDomainService` を継承した時点で
+> 「リクエスト 1 型・レスポンス 1 型」が確定するので、**そこが DTO の置き場所になる**ためです。
+>
+> **集約サービスに汎用の `SaveAsync` を置かないでください。** その口は実質的に集約ルートで、
+> 何でも受け取るメソッドがあれば呼ぶ側はそちらを選び、名前の付いた操作が持っていたルールが
+> 素通りされます。「取得 → 変更 → 保存」は `RenameAsync` のような 1 つの操作に閉じてください
+> （→ [docs/best-practices.md](docs/best-practices.md)）。
 
 ### 7. DI 登録 —— 最初につまずくところ
 
@@ -681,8 +782,10 @@ services.AddScoped<ITransactionManager, TransactionManager>();
 // セッション型ごとに登録します。忘れると TransactionManager が InvalidOperationException を投げます。
 services.AddScoped<ITransactionService<AppSession>, AppTransactionService>();
 
-services.AddScoped<IUserRepository, UserRepository>();
-services.AddScoped<ICommandService<CreateUserReq>, CreateUserCommandService>();
+// セッション型が確定するのはこの登録だけです。ユースケースの TUserSession と
+// リポジトリの TSession を結びつけているのがこの 2 行で、これはプレゼンテーション層の仕事です。
+services.AddScoped<IUserRepository<AppSession>, UserRepository>();
+services.AddScoped<ICreateUserCommandService, CreateUserCommandService<AppSession>>();
 
 var provider = services.BuildServiceProvider();
 ```
@@ -692,9 +795,9 @@ var provider = services.BuildServiceProvider();
 ```csharp
 using (var scope = provider.CreateScope())
 {
-    var createUser = scope.ServiceProvider.GetRequiredService<ICommandService<CreateUserReq>>();
+    var createUser = scope.ServiceProvider.GetRequiredService<ICreateUserCommandService>();
     await createUser.ExecuteAsync(
-        new CreateUserReq("alice", new OperateInfo("operator-1", DateTimeOffset.UtcNow)));
+        new ICreateUserCommandService.Req("alice", new OperateInfo("operator-1", DateTimeOffset.UtcNow)));
 }
 
 foreach (var row in provider.GetRequiredService<UserStore>().Rows.Values)
@@ -722,9 +825,12 @@ Domain          Entity / ValueObject / IRepository        — トランザクシ
 Infrastructure  リポジトリ実装 / ITransactionService<TSession> / セッション型
 ```
 
+セッション型もこの向きに従います。UseCase と Domain が見るのは型引数だけで、
+Infrastructure が具体型を定義して実装で閉じ、Presentation が DI 登録で両者を結びつけます。
+
 ## 主要コンポーネント
 
-公開型は 34 個。詳細は各リンク先にあります。
+公開型は 35 個。詳細は各リンク先にあります。
 
 **エンティティ** — [docs/domain-model.md](docs/domain-model.md)
 
@@ -799,6 +905,7 @@ Infrastructure  リポジトリ実装 / ITransactionService<TSession> / セッ�
 | `ValueObjectNullException` | 値が null だった |
 | `ValueObjectLengthException` | 長さが範囲外。`MinLength` / `MaxLength` / `CurrentLength` を持つ |
 | `TransactionSessionNotFoundException` | 開始されていないセッションを要求した |
+| `NestedTransactionException` | 実行中のトランザクションの中で、同じマネージャーのトランザクションを開始した |
 
 ## 必ず踏む地雷
 
@@ -810,10 +917,31 @@ Infrastructure  リポジトリ実装 / ITransactionService<TSession> / セッ�
 2. **`TransactionManager` は Scoped で登録する。** スレッドセーフではなく、実行中のセッションを保持します
 3. **`ITransactionService` の実装側でセッションを `Dispose` しない。** 所有権はマネージャーにあります
 4. **複数セッションの commit はアトミックではない。** 2 相コミットではありません
-5. **トランザクションを開始してよいのは `ICommandService` だけ**
+5. **トランザクションを開始してよいのは `ICommandService` だけ。入れ子にもできません。**
+   コマンドサービスが別のコマンドサービスを呼ぶと Scoped の同一マネージャーに行き着き、
+   `NestedTransactionException` になります。共通処理はドメインサービスに切り出し、
+   同じトランザクションの本体から呼んでください
 6. **リポジトリは `ObjectNotFoundException` を投げない。** 不在は正常な結果です
 7. **`IRepository` に検索系メソッドを足さない。** 一覧・条件検索は `IQueryService` の仕事
 8. **検証は `Create` に書き、`Reconstruct` では検証しない**
+9. **ドメイン層・ユースケース層に具体的なセッション型を書かない。** 型引数として受け取り
+   （リポジトリ・集約サービスは `TSession`、集約をまたぎうる層は `T[集約名]Session`）、
+   具体型はインフラ層の実装と DI 登録で決めます。ドメインのインターフェースに `AppSession` と
+   書くとコンパイルは通りますが、依存の向きが逆転します
+10. **サービスはインターフェースを立ててから実装する。**
+    `AggregateServiceBase<...>` の派生クラスを直接注入すると、ユースケースのテストが
+    その具象クラスとリポジトリ実装を組み立てる話になります。ユースケースを
+    `ICommandService<TReq, TRes>` で解決すると、プレゼンテーション層が
+    `CreateUserCommandService<AppSession>` を名指しすることになります。
+    ドメインサービスとクエリサービスにも、DTO の置き場所として口を立てます（11 番）
+11. **リクエスト / レスポンスは、それを使う口の中に `Req` / `Res` としてネストする。**
+    `ICommandService` などを継承した時点で「リクエスト 1 型・レスポンス 1 型」が確定するので、
+    DTO は口と 1 対 1 に対応します。外に平らに置くと口から辿れず、
+    別のユースケースの DTO を渡しても型が合えば通ってしまいます
+12. **集約サービスの口に `SaveAsync` のような汎用的な操作を置かない。**
+    その口は実質的に集約ルートです。何でも受け取るメソッドがあれば呼ぶ側はそちらを選び、
+    `RegisterAsync` が持っていた「既に居たら失敗」が素通りされます。
+    「取得 → 変更 → 保存」は `RenameAsync` のような 1 つの操作に閉じてください
 
 ## ドキュメント
 
@@ -822,7 +950,7 @@ Infrastructure  リポジトリ実装 / ITransactionService<TSession> / セッ�
 | [docs/architecture.md](docs/architecture.md) | **なぜ `TSession` を引き回すのか**。DDD / クリーンアーキテクチャとの差分 |
 | [docs/getting-started.md](docs/getting-started.md) | ゼロから動かすまでの 7 ステップ。DI 登録を含む |
 | [docs/best-practices.md](docs/best-practices.md) | 規約の一覧。間違い → 正しい形 → なぜ |
-| [docs/api-reference.md](docs/api-reference.md) | 公開型 34 個と型引数の意味 |
+| [docs/api-reference.md](docs/api-reference.md) | 公開型 35 個と型引数の意味 |
 | [docs/domain-model.md](docs/domain-model.md) | エンティティ / 値オブジェクト / リポジトリ / 集約 |
 | [docs/use-case.md](docs/use-case.md) | 3 種のサービスの使い分けとトランザクションの境界 |
 | [docs/optional.md](docs/optional.md) | `Optional<T>` の三状態 |

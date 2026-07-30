@@ -36,7 +36,8 @@ namespace はフォルダ構成に関係なくフラットな `CSStack.TADA` の
 ## Step 1. セッション型を決める
 
 **最初に決めるのはセッション。** TADA はこの型を全レイヤーに引き回すので、
-ここが決まらないと他が書けない。
+ここが決まらないと他が書けない。ただし引き回すのは**型引数**で、
+この具体型を名指しするのはインフラ層とプレゼンテーション層だけ（Step 4・Step 6）。
 
 条件は `IDisposable` を実装していることだけ。実システムでは `DbContext` や
 `DbConnection` + `DbTransaction` を包んだ型になる。
@@ -58,9 +59,10 @@ public sealed class AppSession : IDisposable
 }
 ```
 
-> セッション型はドメイン層からも見えることになる。これは `TSession` を明示的に
-> 伝播すると決めたことの帰結で、事故ではない。プロジェクトを分けるときの置き場所は
-> [architecture.md](architecture.md#セッション型がドメイン層から見えることについて) を参照。
+> **この型の名前をドメイン層に書かないこと。** `AppSession` はインフラ層の型なので、
+> ドメイン層・ユースケース層は型引数として受け取る（Step 4）。
+> 理由と全体像は
+> [architecture.md](architecture.md#ドメイン層に具体的なセッション型を書かない) を参照。
 
 ---
 
@@ -151,14 +153,22 @@ public sealed class User : EntityBase<User, UserId>
 インターフェースはドメイン層、実装はインフラ層。
 
 ```csharp
-public interface IUserRepository : IRepositoryDeletable<User, UserId, OperateInfo, AppSession>;
+public interface IUserRepository<TSession> : IRepositoryDeletable<User, UserId, OperateInfo, TSession>
+    where TSession : IDisposable;
 ```
 
 型引数は 4 つ: エンティティ / 識別子 / 操作情報 / セッション。
 `TOperateInfo` は書き込みと一緒に記録する「誰が・いつ」で、読み取り系は受け取らない。
 
+**`AppSession` と書かずに `TSession` で開いてあることが重要。**
+ここに Step 1 の具体型を書くと、ドメイン層がインフラ層に依存してしまう
+（→ [architecture.md](architecture.md#ドメイン層に具体的なセッション型を書かない)）。
+集約が扱うリポジトリは 1 つなので、名前は素の `TSession` でよい。
+
+実装はインフラ層なので、ここで型引数を `AppSession` に閉じる。
+
 ```csharp
-public sealed class InMemoryUserRepository : IUserRepository
+public sealed class InMemoryUserRepository : IUserRepository<AppSession>
 {
     public ValueTask<Optional<User>> FindByIdentifierAsync(
         AppSession session, UserId identifier, CancellationToken cancellationToken = default)
@@ -188,7 +198,7 @@ public sealed class InMemoryUserRepository : IUserRepository
 }
 ```
 
-ここで踏みやすい地雷が 3 つ:
+ここで踏みやすい地雷が 4 つ:
 
 1. **`return null;` と書かない。** 暗黙変換で `Some(null)`（`HasValue = true`）になり、
    呼び出し側の `TryGetValue` が true を返したうえで `NullReferenceException` になる。
@@ -197,11 +207,89 @@ public sealed class InMemoryUserRepository : IUserRepository
    異常かどうかを決めるのは集約サービスかユースケース
 3. **セッションをフィールドに持たない。** 引数で受け取るだけ。
    begin / commit / rollback / dispose のどれも行わない
+4. **インターフェース側に `AppSession` と書かない。** 具体型を名指しするのは
+   この実装クラスだけ。インターフェースは `TSession` のまま開いておく
 
 `SaveAsync` は **upsert**（あれば更新、なければ挿入）なので、
 「既に居る / 居ない」で失敗させない。一覧・条件検索のメソッドも足さない（Step 7）。
 
 → [domain-model.md](domain-model.md#リポジトリ)
+
+### その上の集約サービス —— インターフェースを立ててから実装する
+
+集約の操作（不在なら失敗させる、既に居たら失敗させる）は集約サービスに置く。
+**まず `IAggregateService` を継承した口を宣言し、その実装として
+`AggregateServiceBase` の派生クラスを書く。**
+
+```csharp
+// ★ 並べるのはドメインの操作だけ。SaveAsync のような汎用的な口は置かない
+public interface IUserAggregateService<TSession>
+    : IAggregateService<User, UserId, IUserRepository<TSession>, OperateInfo, TSession>
+    where TSession : IDisposable
+{
+    ValueTask RegisterAsync(
+        TSession session, User user, OperateInfo operateInfo, CancellationToken cancellationToken = default);
+
+    ValueTask RenameAsync(
+        TSession session, UserId identifier, UserName newName, OperateInfo operateInfo,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed class UserAggregateService<TSession>
+    : AggregateServiceBase<User, UserId, IUserRepository<TSession>, OperateInfo, TSession>,
+    IUserAggregateService<TSession>
+    where TSession : IDisposable
+{
+    public UserAggregateService(IUserRepository<TSession> repository) : base(repository) { }
+
+    public async ValueTask RegisterAsync(
+        TSession session, User user, OperateInfo operateInfo, CancellationToken cancellationToken = default)
+    {
+        // SaveAsync は upsert なので、「既に居たら失敗」はここで先に読んで判断する
+        var existing = await GetEntityByIdentifierAsync(session, user.Identifier, cancellationToken);
+        if (existing.HasValue)
+        {
+            throw new ObjectAlreadyExistException(typeof(User), user.Identifier);
+        }
+
+        await Repository.SaveAsync(session, user, operateInfo, cancellationToken);
+    }
+
+    // 「取得する → 変更する → 保存する」を 1 つの操作に閉じる。
+    // エンティティを上の層へ返さないので、保存忘れも集約の外での書き換えも起こらない
+    public async ValueTask RenameAsync(
+        TSession session, UserId identifier, UserName newName, OperateInfo operateInfo,
+        CancellationToken cancellationToken = default)
+    {
+        var user = await GetRequiredAsync(session, identifier, cancellationToken);
+        user.Rename(newName);
+        await Repository.SaveAsync(session, user, operateInfo, cancellationToken);
+    }
+
+    // 「居なければ失敗」を決めるのはこの層。リポジトリは Optional<User>.Empty を返すだけ。
+    // ★ private に留める。口に載せるとエンティティが集約の外へ出てしまう
+    private async ValueTask<User> GetRequiredAsync(
+        TSession session, UserId identifier, CancellationToken cancellationToken)
+    {
+        var found = await GetEntityByIdentifierAsync(session, identifier, cancellationToken);
+        if (!found.TryGetValue(out var user))
+        {
+            throw new ObjectNotFoundException(typeof(User), identifier);
+        }
+
+        return user;
+    }
+}
+```
+
+**具象クラスをユースケースに注入しないこと。** 基底クラスは実装の詳細で、
+上の層に見せる契約はインターフェースのほう。具象を注入すると、
+ユースケースのテストのために集約サービスとリポジトリ実装を組み立てることになる。
+
+**この口には `SaveAsync` を置かないこと。** 何でも受け取る `SaveAsync` が `RegisterAsync` と
+並んでいると、呼ぶ側はたいてい `SaveAsync` を選び、「既に居たら失敗」が素通りされる。
+
+→ [domain-model.md](domain-model.md#インターフェースを立ててから実装する)
 
 ---
 
@@ -259,15 +347,23 @@ services.AddScoped<ITransactionManager, TransactionManager>();
 services.AddScoped<ITransactionService<AppSession>, AppTransactionService>();
 
 // ---- ドメイン層 ------------------------------------------------------------
-services.AddScoped<IUserRepository, InMemoryUserRepository>();
-services.AddScoped<UserAggregateService>();
+// ★ 型引数を AppSession に閉じるのはここ。ドメイン層の型定義には AppSession が現れない
+// ★ 登録はすべて「インターフェース → 実装」。上の層は具象クラスを知らない
+services.AddScoped<IUserRepository<AppSession>, InMemoryUserRepository>();
+services.AddScoped<IUserAggregateService<AppSession>, UserAggregateService<AppSession>>();
 
 // ---- ユースケース層 --------------------------------------------------------
-services.AddScoped<ICommandService<CreateUserReq, CreateUserRes>, CreateUserCommandService>();
-services.AddScoped<IQueryService<ListUsersRes>, ListUsersQueryService>();
+// ★ ユースケースの TUserSession と集約サービスの TSession が一致することを保証しているのはこの行
+services.AddScoped<ICreateUserCommandService, CreateUserCommandService<AppSession>>();
+services.AddScoped<IListUsersQueryService, ListUsersQueryService>();
 
 var provider = services.BuildServiceProvider();
 ```
+
+**セッション型が確定するのはここ（プレゼンテーション層）だけ。**
+ユースケースとリポジトリ実装を結びつける瞬間なので、型が決まるのも当然この場所になる。
+`new` でユースケースを組み立てる場合も同じで、コンストラクタ引数にリポジトリを渡す時点で決まる
+（→ [architecture.md](architecture.md#型が確定するのはプレゼンテーション層)）。
 
 ### 落とすと必ず落ちる 2 つ
 
@@ -302,13 +398,15 @@ services.AddSingleton<ITransactionManager, TransactionManager>();  // ← 事故
 
 ```csharp
 using var scope = provider.CreateScope();
-var commandService = scope.ServiceProvider
-    .GetRequiredService<ICommandService<CreateUserReq, CreateUserRes>>();
+var commandService = scope.ServiceProvider.GetRequiredService<ICreateUserCommandService>();
 await commandService.ExecuteAsync(req);
 ```
 
 ASP.NET Core ならリクエストごとにフレームワークがスコープを作るので、
 `CreateScope` を自分で書く必要はない。コンソールアプリやバッチでは明示的に作る。
+
+ここに `AppSession` が出てこないのは、`ICreateUserCommandService`（Step 7）が
+セッション型引数を持たない口だから。型引数を書くのは上の登録の 1 行だけ。
 
 ---
 
@@ -319,30 +417,42 @@ ASP.NET Core ならリクエストごとにフレームワークがスコープ�
 **ここがトランザクションの境界。** `ITransactionManager` を注入するのはこの層だけ。
 
 ```csharp
-public sealed record CreateUserReq(string UserName, OperateInfo OperateInfo) : ICommandServiceDTO;
-public sealed record CreateUserRes(Guid UserId) : ICommandServiceDTO;
+// ★ セッション型引数を持たない口を立てる。呼び出し側が見るのはこれだけ
+// ★ リクエストとレスポンスはこの中にネストして Req / Res と名付ける
+public interface ICreateUserCommandService
+    : ICommandService<ICreateUserCommandService.Req, ICreateUserCommandService.Res>
+{
+    sealed record Req(string UserName, OperateInfo OperateInfo) : ICommandServiceDTO;
 
-public sealed class CreateUserCommandService : ICommandService<CreateUserReq, CreateUserRes>
+    sealed record Res(Guid UserId) : ICommandServiceDTO;
+}
+
+// ★ 型引数の名前は TSession ではなく TUserSession。理由は下記
+public sealed class CreateUserCommandService<TUserSession> : ICreateUserCommandService
+    where TUserSession : IDisposable
 {
     private readonly ITransactionManager _transactionManager;
-    private readonly UserAggregateService _userAggregateService;
+
+    // ★ 集約サービスも具象ではなくインターフェースで受ける
+    private readonly IUserAggregateService<TUserSession> _userAggregateService;
 
     public CreateUserCommandService(
-        ITransactionManager transactionManager, UserAggregateService userAggregateService)
+        ITransactionManager transactionManager,
+        IUserAggregateService<TUserSession> userAggregateService)
     {
         _transactionManager = transactionManager;
         _userAggregateService = userAggregateService;
     }
 
-    public async ValueTask<CreateUserRes> ExecuteAsync(
-        CreateUserReq req, CancellationToken cancellationToken = default)
+    public async ValueTask<ICreateUserCommandService.Res> ExecuteAsync(
+        ICreateUserCommandService.Req req, CancellationToken cancellationToken = default)
     {
         var userId = UserId.New();
 
-        await _transactionManager.ExecuteTransactionAsync<AppSession>(
+        await _transactionManager.ExecuteTransactionAsync<TUserSession>(
             async (sessions, token) =>
             {
-                var session = sessions.GetSession<AppSession>();
+                var session = sessions.GetSession<TUserSession>();
 
                 // 外部入力を値オブジェクトへ。不正なら ValueObjectInvalidException 系が飛ぶ
                 var userName = UserName.Create(req.UserName);
@@ -352,7 +462,7 @@ public sealed class CreateUserCommandService : ICommandService<CreateUserReq, Cr
             },
             cancellationToken: cancellationToken);
 
-        return new CreateUserRes(userId.Value);
+        return new ICreateUserCommandService.Res(userId.Value);
     }
 }
 ```
@@ -364,26 +474,52 @@ public sealed class CreateUserCommandService : ICommandService<CreateUserReq, Cr
 **レスポンスにエンティティを入れない。** エンティティは読み出したトランザクションのもので、
 呼び出し側に届く頃にはセッションは `Dispose` 済み。DTO に詰め替える。
 
+**ユースケースで型引数を `TSession` と名付けない。** ユースケースは複数の集約に触るのが普通で、
+集約ごとにデータストアが違えばセッション型も違う。集約の名前を入れた `TUserSession` にしておけば、
+2 つ目の集約が加わったときに
+`ExecuteTransactionAsync<TUserSession, TOrderSession>` と並べられる。
+今 1 集約しか扱っていなくても最初からこう書くのがよい
+（→ [architecture.md](architecture.md#型引数の名前-集約をまたぐ層では-t集約名session)）。
+
+**リクエスト / レスポンス DTO は型引数を取らない。** 境界の DTO はセッションの存在を
+呼び出し側に知らせないためにあるので、ここに型引数が現れたら設計が漏れている。
+
+**ユースケースごとに、セッション型引数を持たないインターフェースを立てる。**
+上の `ICreateUserCommandService` がそれで、プレゼンテーション層はこれを解決して呼ぶだけなので
+`<AppSession>` を書かずに済む（テストでも差し替えるだけで済む）。
+注入する下の層も同じ理由で口で受ける — 集約サービスは `IUserAggregateService<TUserSession>`、
+ドメインサービスは `IUserNameUniquenessService<TUserSession>`。
+
+**リクエストとレスポンスは口の中にネストする。** `ICommandService` を継承した時点で
+「メソッドは 1 つ、リクエスト 1 型、レスポンス 1 型」が確定しているので、DTO は口と 1 対 1 に対応する。
+中に置けば `ICreateUserCommandService.Req` と口から必ず辿れて、
+別のユースケースの DTO を渡す事故も起きない
+（→ [use-case.md](use-case.md#リクエストとレスポンスは口の中にネストする)）。
+
 ### クエリサービス（読み込み）
 
-**リポジトリを通さず、ストアを直接読む。**
+**リポジトリを通さず、ストアを直接読む。** クエリサービスにも口を立て、レスポンスをネストする。
 
 ```csharp
-public sealed record ListUsersRes(IReadOnlyList<UserSummary> Users) : IQueryServiceDTO;
+public interface IListUsersQueryService : IQueryService<IListUsersQueryService.Res>
+{
+    sealed record Res(IReadOnlyList<UserSummary> Users) : IQueryServiceDTO;
+}
 
-public sealed class ListUsersQueryService : IQueryService<ListUsersRes>
+public sealed class ListUsersQueryService : IListUsersQueryService
 {
     private readonly AppDatabase _database;
 
     public ListUsersQueryService(AppDatabase database) => _database = database;
 
-    public ValueTask<ListUsersRes> ExecuteAsync(CancellationToken cancellationToken = default)
+    public ValueTask<IListUsersQueryService.Res> ExecuteAsync(
+        CancellationToken cancellationToken = default)
     {
         var users = _database.Users
             .Select(row => new UserSummary(row.Id, row.Name))
             .ToList();
 
-        return ValueTask.FromResult(new ListUsersRes(users));
+        return ValueTask.FromResult(new IListUsersQueryService.Res(users));
     }
 }
 ```
@@ -405,10 +541,9 @@ public sealed class ListUsersQueryService : IQueryService<ListUsersRes>
 ```csharp
 using var scope = provider.CreateScope();
 
-var createUser = scope.ServiceProvider
-    .GetRequiredService<ICommandService<CreateUserReq, CreateUserRes>>();
+var createUser = scope.ServiceProvider.GetRequiredService<ICreateUserCommandService>();
 var response = await createUser.ExecuteAsync(
-    new CreateUserReq("alice", OperateInfo.Now("operator-1")));
+    new ICreateUserCommandService.Req("alice", OperateInfo.Now("operator-1")));
 
 Console.WriteLine(response.UserId);
 ```
@@ -421,11 +556,13 @@ Console.WriteLine(response.UserId);
 |---|---|
 | `InvalidOperationException: No transaction service is registered...` | `ITransactionService<TSession>` の登録漏れ（Step 6） |
 | `TransactionSessionNotFoundException` | `ExecuteTransactionAsync<T>` に渡していないセッション型を `GetSession` した |
+| `NestedTransactionException` | 実行中のトランザクションの中で `ExecuteTransactionAsync` を呼んだ（コマンドサービスから別のコマンドサービスを呼んだ） |
 | 負荷時だけセッションが混ざる | `TransactionManager` を Singleton で登録している（Step 6） |
 | `TryGetValue` が true なのに `NullReferenceException` | リポジトリで `return null;` と書いた → `Optional<T>.Empty` にする |
 | セッションが二重に `Dispose` される | `ITransactionService` の実装側で `Dispose` を呼んでいる（Step 5） |
 | コミットしたのにデータが無い | `ExecuteTransactionAsync` の外で `SaveAsync` を呼んでいる |
 | 2 つ目のストアだけロールバックされない | 複数セッションの commit はアトミックではない（仕様） |
+| ドメイン層がインフラ層に依存してしまった | リポジトリのインターフェースに `AppSession` と書いた → `TSession` で開く（Step 4） |
 
 ## 次に読むもの
 

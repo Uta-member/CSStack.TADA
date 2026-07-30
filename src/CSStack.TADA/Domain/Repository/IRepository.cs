@@ -16,6 +16,18 @@
 	/// Transaction session type. Passed in by the caller rather than held by the repository, so that
 	/// several repositories can take part in one transaction started by
 	/// <see cref="ITransactionManager"/>. Implementations must not begin, commit or dispose it.
+	/// <para>
+	/// <b>Keep this open in the domain layer.</b> Derive your repository interface as
+	/// <c>IUserRepository&lt;TSession&gt; : IRepository&lt;User, UserId, OperateInfo, TSession&gt;</c>
+	/// rather than naming the concrete session type: a domain interface that names the infrastructure
+	/// session inverts the dependency direction and gives up most of what this architecture is for
+	/// (a store you can swap, a domain you can unit test without one, aggregates that may live in
+	/// different stores). The concrete type belongs to the implementation and to the composition root
+	/// that registers it. In layers that can span aggregates — domain services and use cases — name the
+	/// parameter after the aggregate (<c>TUserSession</c>) instead of <c>TSession</c>, because
+	/// different aggregates may be written to different stores and therefore have different session
+	/// types.
+	/// </para>
 	/// </typeparam>
 	/// <remarks>
 	/// <para>
@@ -74,6 +86,11 @@
 		/// <para>
 		/// The write takes effect when <paramref name="session"/> is committed by
 		/// <see cref="ITransactionManager"/>, not when this method returns.
+		/// </para>
+		/// <para>
+		/// This is called from the aggregate service, not from a use case, and it is not mirrored on the
+		/// aggregate service's own interface — see
+		/// <see cref="IAggregateService{TEntity, TEntityIdentifier, TRepository, TOperateInfo, TSession}"/>.
 		/// </para>
 		/// </remarks>
 		/// <param name="session">Transaction factor</param>
