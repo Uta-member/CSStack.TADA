@@ -26,7 +26,7 @@
   </PropertyGroup>
 
   <PropertyGroup Label="パッケージ共通メタデータ">
-    <Version>3.0.0</Version>
+    <Version>3.0.1</Version>
     <Authors>Uta Sugane</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/Uta-member/CSStack.TADA</PackageProjectUrl>
