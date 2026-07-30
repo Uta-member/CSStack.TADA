@@ -46,6 +46,12 @@ NuGet パッケージ名は `CSStack.TADA`、`net8.0;net10.0` のマルチター
    なぜセッションを引き回すのかは → [docs/architecture.md](docs/architecture.md)
 8. **`ObjectNotFoundException` を投げるのはリポジトリではない。** 不在は
    `Optional<T>.Empty` で返り、それを異常とみなすかは集約サービス / ユースケースが決める
+9. **トランザクションは入れ子にできない。** 実行中の `ExecuteTransactionAsync` の本体から
+   同じマネージャーの `ExecuteTransactionAsync` を呼ぶと `NestedTransactionException`。
+   `ITransactionManager` は Scoped なので、**コマンドサービスが別のコマンドサービスを呼ぶと
+   これに当たる**。共通処理はドメインサービス / 集約サービスに切り出し、同じトランザクションの
+   本体からセッションを渡して呼ぶ。連続して 2 つのトランザクションを張るのは正当
+   → [docs/best-practices.md](docs/best-practices.md)
 
 ## ビルド・テスト
 
@@ -59,8 +65,6 @@ dotnet run --project samples/CSStack.TADA.Sample   # サンプルの動作確認
 
 警告ゼロを維持すること。`Directory.Build.props` で `TreatWarningsAsErrors` を有効にしているため、
 XML doc の破損（CS1570 / CS1574）や記述漏れ（CS1591）は**ビルドエラーになる**。
-例外は `NU1902` / `NU1903`（依存パッケージの既知の脆弱性）で、これはこちらでは直せないため
-`WarningsNotAsErrors` で警告のままにしてある。
 
 **`dotnet format --verify-no-changes` も CI のゲート**になっている。インデント・改行コード
 （作業ツリーは CRLF。`.gitattributes` の `eol=crlf` により OS を問わずそうなる）・命名規則の
@@ -88,7 +92,7 @@ docs/                     ドキュメント
   architecture.md         設計思想。なぜ TSession を引き回すのか
   getting-started.md      ゼロから動かすまでの 7 ステップ（DI 登録を含む）
   best-practices.md       規約の一覧。間違い → 正しい形 → なぜ
-  api-reference.md        公開型 34 個と型引数の意味
+  api-reference.md        公開型 35 個と型引数の意味
   domain-model.md         エンティティ / 値オブジェクト / リポジトリ / 集約
   use-case.md             3 種のサービスとトランザクションの境界
   optional.md             Optional<T> の三状態

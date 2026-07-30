@@ -421,6 +421,7 @@ Console.WriteLine(response.UserId);
 |---|---|
 | `InvalidOperationException: No transaction service is registered...` | `ITransactionService<TSession>` の登録漏れ（Step 6） |
 | `TransactionSessionNotFoundException` | `ExecuteTransactionAsync<T>` に渡していないセッション型を `GetSession` した |
+| `NestedTransactionException` | 実行中のトランザクションの中で `ExecuteTransactionAsync` を呼んだ（コマンドサービスから別のコマンドサービスを呼んだ） |
 | 負荷時だけセッションが混ざる | `TransactionManager` を Singleton で登録している（Step 6） |
 | `TryGetValue` が true なのに `NullReferenceException` | リポジトリで `return null;` と書いた → `Optional<T>.Empty` にする |
 | セッションが二重に `Dispose` される | `ITransactionService` の実装側で `Dispose` を呼んでいる（Step 5） |

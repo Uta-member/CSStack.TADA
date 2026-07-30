@@ -21,7 +21,7 @@
 | 2 | `TransactionManager` は **Scoped** で登録する | 本番の同時実行時だけセッションが混線する |
 | 3 | `ITransactionService` の実装側でセッションを `Dispose` しない | 二重解放 |
 | 4 | 複数セッションの commit はアトミックではない | 片方だけ確定したまま残る |
-| 5 | トランザクションを開始してよいのは `ICommandService` だけ | 意図しない粒度でコミットされる |
+| 5 | トランザクションを開始してよいのは `ICommandService` だけ | 意図しない粒度でコミットされる／入れ子は `NestedTransactionException` |
 | 6 | リポジトリは `ObjectNotFoundException` を投げない | 正常な不在が例外になる |
 | 7 | `IRepository` に検索系メソッドを足さない | 集約の境界が読み取り側へ漏れる |
 | 8 | 検証は `Create` に書き、`Reconstruct` では検証しない | 古いデータが読み戻せなくなる |
@@ -180,6 +180,46 @@ public sealed class UserAggregateService
 
 ドメインサービスは `ExecuteAsync` にセッション引数が無いので、
 **DTO にセッションを載せて渡す**（`IDomainServiceDTO` の実装がセッションを持ってよい唯一の理由）。
+
+### 系: コマンドサービスから別のコマンドサービスを呼ばない
+
+```csharp
+// ✗ 間違い: トランザクションが入れ子になる（NestedTransactionException）
+public sealed class RegisterUserCommandService : ICommandService<RegisterUserDTO>
+{
+    public async ValueTask ExecuteAsync(RegisterUserDTO req, CancellationToken cancellationToken = default)
+    {
+        await _transactionManager.ExecuteTransactionAsync<AppSession>(
+            async (sessions, token) =>
+            {
+                // この中でさらに ExecuteTransactionAsync を呼ぶ
+                await _sendWelcomeMailCommandService.ExecuteAsync(new SendWelcomeMailDTO(...), token);
+            },
+            cancellationToken: cancellationToken);
+    }
+}
+```
+
+```csharp
+// ✓ 正しい: 共有したい処理をドメインサービスに切り出し、セッションを渡して呼ぶ
+await _transactionManager.ExecuteTransactionAsync<AppSession>(
+    async (sessions, token) =>
+    {
+        var session = sessions.GetSession<AppSession>();
+        await _registerUserDomainService.ExecuteAsync(new RegisterUserDomainDTO(session, ...), token);
+        await _sendWelcomeMailDomainService.ExecuteAsync(new SendWelcomeMailDomainDTO(session, ...), token);
+    },
+    cancellationToken: cancellationToken);
+```
+
+**なぜ:** `ITransactionManager` は Scoped 登録なので、コマンドサービスが別のコマンドサービスを
+呼ぶと**同じマネージャーインスタンス**に行き着く。マネージャーはセッションを
+「どの `ExecuteTransactionAsync` が開始したか」の区別なしに保持しているため、
+内側の commit が外側のセッションまで確定して `Dispose` してしまう。
+v3.0.0 からはこれを検知して `NestedTransactionException` を投げる。
+
+**連続して**（入れ子でなく）呼ぶのは正当。1 つ目のトランザクションが終わってから
+2 つ目を開始する分には何も起きない。
 
 → [use-case.md](use-case.md#コマンドサービスがトランザクションの境界)
 

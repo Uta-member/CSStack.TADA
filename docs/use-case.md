@@ -90,7 +90,7 @@ public sealed class ChangeUserNameCommandService : ICommandService<ChangeUserNam
 ただし **`ITransactionManager` に一度も触れないコマンドサービスは、ほぼ確実に間違い**です。
 書き込みがどこで確定するのか誰にも分からなくなります。
 
-### 押さえておくべき 3 点
+### 押さえておくべき 4 点
 
 - **セッションの所有権は `ITransactionManager` にある。** commit / rollback / 例外の
   いずれの経路でも `ITransactionManager` が `Dispose` します。
@@ -99,6 +99,12 @@ public sealed class ChangeUserNameCommandService : ICommandService<ChangeUserNam
   実行中のセッションを保持するため、Singleton にすると全リクエストで混線します
 - **複数セッションの commit はアトミックではない。** 2 相コミットではないので、
   2 つ目が失敗しても 1 つ目は確定したまま残ります
+- **トランザクションは入れ子にできない。** 実行中の `ExecuteTransactionAsync` の本体から
+  同じマネージャーの `ExecuteTransactionAsync` を呼ぶと `NestedTransactionException` です。
+  `ITransactionManager` は Scoped なので、**コマンドサービスが別のコマンドサービスを呼ぶと
+  この状態**になります。共通処理はドメインサービス／集約サービスに切り出し、
+  同じトランザクションの本体からセッションを渡して呼んでください
+  （連続して 2 つのトランザクションを張るのは正当です）
 
 ### DI 登録
 

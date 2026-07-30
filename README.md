@@ -303,7 +303,7 @@ Infrastructure  repository impls, ITransactionService<TSession>, the session typ
 
 ## Components
 
-All 34 public types. Details are behind the links.
+All 35 public types. Details are behind the links.
 
 **Entities** — [docs/domain-model.md](docs/domain-model.md)
 
@@ -378,6 +378,7 @@ All 34 public types. Details are behind the links.
 | `ValueObjectNullException` | The value was null |
 | `ValueObjectLengthException` | Length out of range; carries `MinLength` / `MaxLength` / `CurrentLength` |
 | `TransactionSessionNotFoundException` | A session was requested before it was begun |
+| `NestedTransactionException` | A transaction was started inside another one on the same manager |
 
 ---
 
@@ -391,7 +392,9 @@ The full list with wrong/right code is in [docs/best-practices.md](docs/best-pra
 2. **Register `TransactionManager` as scoped.** It is not thread-safe and holds the in-flight sessions
 3. **Never dispose the session in `ITransactionService`.** The manager owns it on every path
 4. **Commits across multiple sessions are not atomic.** Not a two-phase commit coordinator
-5. **Only `ICommandService` starts transactions**
+5. **Only `ICommandService` starts transactions**, and **never nested.** A command service calling
+   another command service shares the scoped manager and throws `NestedTransactionException`; extract
+   the shared work into a domain service and call it from the same transaction body
 6. **Repositories never throw `ObjectNotFoundException`.** Absence is a normal result
 7. **Never add query methods to `IRepository`.** Listing and searching belong to `IQueryService`
 8. **Validate in `Create`, not in `Reconstruct`.** `Reconstruct` restores data written under older rules
@@ -405,7 +408,7 @@ The full list with wrong/right code is in [docs/best-practices.md](docs/best-pra
 | [docs/architecture.md](docs/architecture.md) | **Why `TSession` is passed everywhere**; differences from DDD / Clean Architecture |
 | [docs/getting-started.md](docs/getting-started.md) | Zero to running, in 7 steps. DI registration included |
 | [docs/best-practices.md](docs/best-practices.md) | Every rule, with wrong/right code |
-| [docs/api-reference.md](docs/api-reference.md) | All 34 public types and the meaning of each type parameter |
+| [docs/api-reference.md](docs/api-reference.md) | All 35 public types and the meaning of each type parameter |
 | [docs/domain-model.md](docs/domain-model.md) | Entities, value objects, repositories, aggregates |
 | [docs/use-case.md](docs/use-case.md) | The three service families and where the transaction begins |
 | [docs/optional.md](docs/optional.md) | The three states of `Optional<T>` |
@@ -724,7 +727,7 @@ Infrastructure  リポジトリ実装 / ITransactionService<TSession> / セッ�
 
 ## 主要コンポーネント
 
-公開型は 34 個。詳細は各リンク先にあります。
+公開型は 35 個。詳細は各リンク先にあります。
 
 **エンティティ** — [docs/domain-model.md](docs/domain-model.md)
 
@@ -799,6 +802,7 @@ Infrastructure  リポジトリ実装 / ITransactionService<TSession> / セッ�
 | `ValueObjectNullException` | 値が null だった |
 | `ValueObjectLengthException` | 長さが範囲外。`MinLength` / `MaxLength` / `CurrentLength` を持つ |
 | `TransactionSessionNotFoundException` | 開始されていないセッションを要求した |
+| `NestedTransactionException` | 実行中のトランザクションの中で、同じマネージャーのトランザクションを開始した |
 
 ## 必ず踏む地雷
 
@@ -810,7 +814,10 @@ Infrastructure  リポジトリ実装 / ITransactionService<TSession> / セッ�
 2. **`TransactionManager` は Scoped で登録する。** スレッドセーフではなく、実行中のセッションを保持します
 3. **`ITransactionService` の実装側でセッションを `Dispose` しない。** 所有権はマネージャーにあります
 4. **複数セッションの commit はアトミックではない。** 2 相コミットではありません
-5. **トランザクションを開始してよいのは `ICommandService` だけ**
+5. **トランザクションを開始してよいのは `ICommandService` だけ。入れ子にもできません。**
+   コマンドサービスが別のコマンドサービスを呼ぶと Scoped の同一マネージャーに行き着き、
+   `NestedTransactionException` になります。共通処理はドメインサービスに切り出し、
+   同じトランザクションの本体から呼んでください
 6. **リポジトリは `ObjectNotFoundException` を投げない。** 不在は正常な結果です
 7. **`IRepository` に検索系メソッドを足さない。** 一覧・条件検索は `IQueryService` の仕事
 8. **検証は `Create` に書き、`Reconstruct` では検証しない**
@@ -822,7 +829,7 @@ Infrastructure  リポジトリ実装 / ITransactionService<TSession> / セッ�
 | [docs/architecture.md](docs/architecture.md) | **なぜ `TSession` を引き回すのか**。DDD / クリーンアーキテクチャとの差分 |
 | [docs/getting-started.md](docs/getting-started.md) | ゼロから動かすまでの 7 ステップ。DI 登録を含む |
 | [docs/best-practices.md](docs/best-practices.md) | 規約の一覧。間違い → 正しい形 → なぜ |
-| [docs/api-reference.md](docs/api-reference.md) | 公開型 34 個と型引数の意味 |
+| [docs/api-reference.md](docs/api-reference.md) | 公開型 35 個と型引数の意味 |
 | [docs/domain-model.md](docs/domain-model.md) | エンティティ / 値オブジェクト / リポジトリ / 集約 |
 | [docs/use-case.md](docs/use-case.md) | 3 種のサービスの使い分けとトランザクションの境界 |
 | [docs/optional.md](docs/optional.md) | `Optional<T>` の三状態 |

@@ -18,11 +18,8 @@
 
     <!--
       警告ゼロを維持するため、警告はビルドエラーとして扱う。
-      NU1902 / NU1903（依存パッケージの既知の脆弱性）はこちらのコードでは直せず、
-      上流の更新待ちになるため除外する。警告としては表示され続ける。
     -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <WarningsNotAsErrors>NU1902;NU1903</WarningsNotAsErrors>
   </PropertyGroup>
 
   <PropertyGroup Label="パッケージ共通メタデータ">

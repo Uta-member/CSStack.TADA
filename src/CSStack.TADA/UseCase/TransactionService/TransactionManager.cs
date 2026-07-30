@@ -23,9 +23,20 @@ namespace CSStack.TADA
 	/// <para>
 	/// <b>Commits across multiple sessions are not atomic.</b> See <see cref="ITransactionManager"/>.
 	/// </para>
+	/// <para>
+	/// <b>Transactions must not be nested.</b> Calling <see cref="ExecuteTransactionAsync(ImmutableList{Type}, Func{TransactionSessions, CancellationToken, ValueTask}, Func{Exception, ValueTask}, CancellationToken)"/>
+	/// from the body of another one throws <see cref="NestedTransactionException"/>. Consecutive
+	/// (non-nested) transactions on the same instance are fine.
+	/// </para>
 	/// </remarks>
 	public sealed class TransactionManager : ITransactionManager
 	{
+		/// <summary>
+		/// Whether an <see cref="ExecuteTransactionAsync(ImmutableList{Type}, Func{TransactionSessions, CancellationToken, ValueTask}, Func{Exception, ValueTask}, CancellationToken)"/>
+		/// call is in flight. Set for the whole call, including the rollback, and always cleared afterwards.
+		/// </summary>
+		private bool _isExecutingTransaction;
+
 		private readonly IServiceProvider _serviceProvider;
 
 		/// <summary>
@@ -75,9 +86,36 @@ namespace CSStack.TADA
 			CancellationToken cancellationToken = default)
 		{
 			ArgumentNullException.ThrowIfNull(sessionTypes);
-			foreach (var sessionType in sessionTypes)
+			try
 			{
-				await BeginTransactionAsync(sessionType, cancellationToken).ConfigureAwait(false);
+				foreach (var sessionType in sessionTypes)
+				{
+					await BeginTransactionAsync(sessionType, cancellationToken).ConfigureAwait(false);
+				}
+			}
+			catch (Exception exception)
+			{
+				var errors = new List<Exception> { exception };
+
+				try
+				{
+					// The sessions begun before the failure must not leak. The token is deliberately not
+					// forwarded: a cancelled token must not stop the cleanup.
+					await RollbackTransactionsAsync(CancellationToken.None).ConfigureAwait(false);
+				}
+				catch (Exception rollbackException)
+				{
+					errors.Add(rollbackException);
+				}
+
+				if (errors.Count == 1)
+				{
+					throw;
+				}
+				throw new AggregateException(
+					"Failed to begin the transactions and the rollback of the sessions already begun also failed. "
+					+ "The first inner exception is the original failure.",
+					errors);
 			}
 		}
 
@@ -132,10 +170,21 @@ namespace CSStack.TADA
 			ArgumentNullException.ThrowIfNull(sessionTypes);
 			ArgumentNullException.ThrowIfNull(transactionFunction);
 
+			// Before the try: the nested call must not run the cleanup of the transaction already in flight.
+			if (_isExecutingTransaction)
+			{
+				throw new NestedTransactionException();
+			}
+			_isExecutingTransaction = true;
+
 			try
 			{
 				await BeginTransactionsAsync(sessionTypes, cancellationToken).ConfigureAwait(false);
-				await transactionFunction.Invoke(new TransactionSessions(_sessions), cancellationToken)
+
+				// A copy, not the live dictionary: what the body can reach must not change when it begins
+				// further sessions, and must not empty out when the sessions are committed.
+				await transactionFunction
+					.Invoke(new TransactionSessions(new Dictionary<Type, IDisposable>(_sessions)), cancellationToken)
 					.ConfigureAwait(false);
 				await CommitTransactionsAsync(cancellationToken).ConfigureAwait(false);
 			}
@@ -179,6 +228,7 @@ namespace CSStack.TADA
 			{
 				// Safety net for paths that reached neither commit nor rollback.
 				DisposeSessionsCore();
+				_isExecutingTransaction = false;
 			}
 		}
 
