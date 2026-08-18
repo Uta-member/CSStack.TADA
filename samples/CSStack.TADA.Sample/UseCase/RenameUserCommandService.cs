@@ -78,7 +78,7 @@
                     // 「読み込む → 変更する → 保存する」は集約サービスの中に閉じている。
                     // ここでエンティティを受け取って書き換えて保存する形にしないのが要点で、
                     // だから IUserAggregateService に SaveAsync は無い。
-                    // 存在しなければ ObjectNotFoundException。判断しているのは集約サービス。
+                    // 存在しなければ UserNotFoundException。判断しているのは集約サービス。
                     await _userAggregateService.RenameAsync(session, userId, newName, req.OperateInfo, token);
                 },
                 cancellationToken: cancellationToken);

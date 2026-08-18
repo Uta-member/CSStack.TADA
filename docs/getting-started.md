@@ -128,7 +128,7 @@ TADA はもう値オブジェクト用の例外クラスを提供しないので
 - **`Reconstruct` が検証しないのは意図的。** ルールを厳しくした後でも、
   古いルールで保存されたデータを読み戻せるようにするため
 - 長さの上下限は `MaxLength` / `MinLength` を**素の static メンバーとして公開する**だけで強制はしない
-  （`ILengthDefinedSingleValueObject` は v3.0.0 で削除された）。強制するのは `Create`。
+  （`ILengthDefinedSingleValueObject` は v4.0.0 で削除された）。強制するのは `Create`。
   画面側が `UserName.MaxLength` をそのまま使えるので、同じ数字を 2 箇所に書かずに済む
 
 → [domain-model.md](domain-model.md#値オブジェクト)
@@ -309,7 +309,7 @@ public sealed class UserAggregateService<TSession>
 ```
 
 `UserAlreadyExistsException` / `UserNotFoundException` はこのプロジェクトが自分で定義する例外。
-TADA はもう `ObjectAlreadyExistException` / `ObjectNotFoundException` のような
+TADA はもう `ObjectAlreadyExistException` / `ObjectNotFoundException`（v4.0.0 で削除）のような
 汎用の例外クラスを提供しないので、ドメインの語彙で自前に定義する
 （→ [domain-model.md](domain-model.md#例外を投げる層)）。
 

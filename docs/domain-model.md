@@ -293,7 +293,7 @@ TADA は値オブジェクト用の例外クラスを提供しません。`Creat
 長さの上下限を公開したい値オブジェクトは、interface を介さず
 `public static int MaxLength => ...;` / `public static int MinLength => ...;` を
 **素の static メンバーとして**宣言するだけです（`ILengthDefinedSingleValueObject` は
-v3.0.0 で削除されました。境界値を公開するためだけの効果しかなく、
+v4.0.0 で削除されました。境界値を公開するためだけの効果しかなく、
 ジェネリック制約以外の用途がありませんでした）。**公開するだけで、強制はしません。**
 強制するのは `Create` です。
 
@@ -522,7 +522,7 @@ public sealed class UserNotFoundException : Exception
 違い、ドメインサービスは扱う対象・引数・戻り値の形がプロジェクトごとに柔軟すぎて、
 共通の親インターフェースを立てても「メソッド名と Req/Res の形を強制するだけ」の効果しかなく、
 実際に使う場面がほとんど無かったため、`IDomainService<TReq>` / `IDomainService<TReq, TRes>` /
-`IDomainServiceDTO` は v3.0.0 で削除されました。
+`IDomainServiceDTO` は v4.0.0 で削除されました。
 
 **それでも「専用の口を立て、リクエストをその中に `Req` としてネストする」という規約自体は
 他の 3 種のサービスと変わりません。** `ExecuteAsync` を自分で 1 つ宣言するだけです。

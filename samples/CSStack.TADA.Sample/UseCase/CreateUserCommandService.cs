@@ -115,7 +115,7 @@
                     var session = sessions.GetSession<TUserSession>();
 
                     // 外部からの入力を値オブジェクトに変換する。検証は Create の中で行われ、
-                    // 不正なら ValueObjectInvalidException 系が飛ぶ。
+                    // 不正なら UserNameInvalidException 系が飛ぶ。
                     var userName = UserName.Create(req.UserName);
 
                     // 集約をまたぐルールはドメインサービスへ。セッションは DTO で渡す。

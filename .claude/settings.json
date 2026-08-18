@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(cat | grep -oE '\"file_path\"[[:space:]]*:[[:space:]]*\"[^\"]*\"' | head -1 | sed -E 's/.*:[[:space:]]*\"(.*)\"/\\1/'); case \"$f\" in *Directory.Build.props) dir=$(dirname \"$f\"); cache=\"$dir/.claude/.version-bump-last-seen\"; cur=$(grep -oE '<Version>[0-9]+\\.[0-9]+\\.[0-9]+</Version>' \"$f\" 2>/dev/null | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+'); prev=$(cat \"$cache\" 2>/dev/null); if [ -n \"$cur\" ] && [ \"$cur\" != \"$prev\" ]; then mkdir -p \"$dir/.claude\"; printf '%s' \"$cur\" > \"$cache\"; printf '{\"systemMessage\": \"Directory.Build.props の Version が %s に変わりました。docs/ と README.md の整合性を .claude/skills/version-bump-doc-audit で確認してください（bash .claude/skills/version-bump-doc-audit/audit-version-refs.sh、または /version-bump-doc-audit）。\"}' \"$cur\"; fi ;; esac",
+            "statusMessage": "バージョン変更を確認中..."
+          }
+        ]
+      }
+    ]
+  }
+}
