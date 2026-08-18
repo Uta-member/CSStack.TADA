@@ -42,7 +42,7 @@
         /// <b>見つからないときは <c>Optional&lt;User&gt;.Empty</c> を返す。<c>return null;</c> と書かない。</b>
         /// 暗黙変換によって null は <c>Some(null)</c>（<c>HasValue = true</c>）になるため、
         /// 呼び出し側の <c>TryGetValue</c> が true を返したうえで <see cref="NullReferenceException"/> になる。
-        /// 不在は正常な結果であり、<see cref="ObjectNotFoundException"/> を投げるのもここではない。
+        /// 不在は正常な結果であり、<see cref="UserNotFoundException"/> を投げるのもここではない。
         /// </remarks>
         public ValueTask<Optional<User>> FindByIdentifierAsync(
             AppSession session,

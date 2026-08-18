@@ -22,7 +22,7 @@
 | 3 | `ITransactionService` の実装側でセッションを `Dispose` しない | 二重解放 |
 | 4 | 複数セッションの commit はアトミックではない | 片方だけ確定したまま残る |
 | 5 | トランザクションを開始してよいのは `ICommandService` だけ | 意図しない粒度でコミットされる／入れ子は `NestedTransactionException` |
-| 6 | リポジトリは `ObjectNotFoundException` を投げない | 正常な不在が例外になる |
+| 6 | リポジトリは「見つからない」を例外にしない | 正常な不在が例外になる |
 | 7 | `IRepository` に検索系メソッドを足さない | 集約の境界が読み取り側へ漏れる |
 | 8 | 検証は `Create` に書き、`Reconstruct` では検証しない | 古いデータが読み戻せなくなる |
 | 9 | 値オブジェクトは `record` で実装する | 値が等しいのに等価にならない |
@@ -185,7 +185,7 @@ public sealed class UserAggregateService<TSession>
 取り出したセッションを下の層へ渡す。**それより下の層はトランザクションを開始しない。**
 
 ドメインサービスは `ExecuteAsync` にセッション引数が無いので、
-**DTO にセッションを載せて渡す**（`IDomainServiceDTO` の実装がセッションを持ってよい唯一の理由）。
+**DTO にセッションを載せて渡す**（ドメインサービスの DTO がセッションを持ってよい唯一の理由）。
 
 ### 系: コマンドサービスから別のコマンドサービスを呼ばない
 
@@ -232,7 +232,7 @@ v3.0.0 からはこれを検知して `NestedTransactionException` を投げる�
 
 ---
 
-## 6. リポジトリは `ObjectNotFoundException` を投げない
+## 6. リポジトリは「見つからない」を例外にしない
 
 ```csharp
 // ✗ 間違い: リポジトリが不在を異常と決めつけている
@@ -241,7 +241,7 @@ public async ValueTask<Optional<User>> FindByIdentifierAsync(...)
     var row = await session.FindAsync(...);
     if (row is null)
     {
-        throw new ObjectNotFoundException(typeof(User), identifier);
+        throw new UserNotFoundException(identifier.Value);
     }
 }
 ```
@@ -256,7 +256,7 @@ private async ValueTask<User> GetRequiredAsync(
     var found = await GetEntityByIdentifierAsync(session, identifier, cancellationToken);
     if (!found.TryGetValue(out var user))
     {
-        throw new ObjectNotFoundException(typeof(User), identifier);
+        throw new UserNotFoundException(identifier.Value);
     }
 
     return user;
@@ -266,14 +266,15 @@ private async ValueTask<User> GetRequiredAsync(
 **なぜ:** 「見つからない」が異常かどうかは操作次第。削除済みのものをもう一度削除するのは
 問題ないが、無い口座から引き落とすのは問題。**それを知っているのは呼び出し側だけ。**
 
-同じ理由で `SaveAsync` は `ObjectAlreadyExistException` も投げない（upsert なので、
+同じ理由で `SaveAsync` も「既に居る」を例外にしない（upsert なので、
 既に居ることは失敗ではない）。「既に居たら失敗」も上位層で先に読んで判断する。
 
-**例外は情報付きのコンストラクタを使う。** 対象型と識別子を渡すと、
+**`UserNotFoundException` のような例外は TADA が提供するのではなく、プロジェクト自身が定義する。**
+対象を特定できる情報（識別子など）をプロパティとして持たせておくと、
 呼び出し側でメッセージを組み立てなくてもログに出る。
 
 ```csharp
-throw new ObjectNotFoundException(typeof(User), identifier);
+throw new UserNotFoundException(identifier.Value);
 ```
 
 → [domain-model.md](domain-model.md#例外を投げる層)
@@ -324,17 +325,20 @@ public static UserName Reconstruct(string value) => Create(value);
 // ✓ 正しい
 public static UserName Create(string value)
 {
-    // 検証はここだけ
-    if (value.Length < MinLength || value.Length > MaxLength)
-    {
-        throw new ValueObjectLengthException(
-            minLength: MinLength, maxLength: MaxLength, currentLength: value.Length);
-    }
-
+    CheckInvariants(value);   // 検証はここだけ
     return new UserName(value);
 }
 
 public static UserName Reconstruct(string value) => new(value);   // 検証しない
+
+private static void CheckInvariants(string value)
+{
+    if (value.Length < MinLength || value.Length > MaxLength)
+    {
+        throw new UserNameLengthException(
+            minLength: MinLength, maxLength: MaxLength, currentLength: value.Length);
+    }
+}
 ```
 
 **なぜ:** `Reconstruct` は永続化からの復元用。**ルールを厳しくした後でも、
@@ -344,11 +348,16 @@ public static UserName Reconstruct(string value) => new(value);   // 検証し�
 - `Create` を呼ぶ: ユーザー入力、外部 API、その他信用できない入力
 - `Reconstruct` を呼ぶ: リポジトリが永続化された値から復元するときだけ
 
-**`Validate` メンバーは存在しない。** 外から呼べる検証があると
-「未検証の値オブジェクトが存在しうる」ことになってしまうため v2.0.0 で削除された。
+**`IValueObject.Validate()` は `Create` の代わりではない。** `Validate()` は既定実装のない
+必須メンバーなので実装は必要だが、`Create` を通った時点で検証済みなので `Create` の中から
+呼ぶ必要はない。`Validate()` を用意したのは、あるインスタンスが `Create` を通ったかどうかを
+外部から検証する術が無いため。`Reconstruct` の後に使うのはその一例に過ぎず、`Validate()` 自体は
+何にも依存しない——単に今の値が現行の不変条件を満たしているかを確認するだけのプリミティブ。
+**`Create` と `Validate` の検証は同じ `private` ヘルパーに集約する**（`Create` はそのヘルパーを
+呼んで新しいインスタンスを作り、`Validate` は同じヘルパーを既存の `Value` に対して呼ぶ）。
 コンストラクタを private にして、`Create` / `Reconstruct` だけを入口にする。
 
-→ [domain-model.md](domain-model.md#検証は-create-の中に書く)
+→ [domain-model.md](domain-model.md#検証は-create-の中に書く-validate-は別経路)
 
 ---
 
@@ -462,7 +471,7 @@ DDD の利点がほぼ消える。** ストアを載せ替えるたびにドメ�
 
 なお **境界の DTO（`ICommandServiceDTO` / `IQueryServiceDTO`）は型引数を持たない。**
 セッションを載せないのだから型引数も要らず、現れたらセッションの存在が
-呼び出し側へ漏れている。セッションを載せる `IDomainServiceDTO` だけが型引数を取る。
+呼び出し側へ漏れている。セッションを載せるドメインサービスの `Req` だけが型引数を取る。
 
 → [architecture.md](architecture.md#ドメイン層に具体的なセッション型を書かない)
 
@@ -554,7 +563,7 @@ await commandService.ExecuteAsync(new ICreateUserCommandService.Req("alice", ope
 |---|---|
 | 集約サービス | 基底クラスの継承を隠す。テストで差し替える |
 | コマンドサービス | セッション型引数を呼び出し側から隠す |
-| ドメインサービス | `IDomainService<TReq>` は DTO の型で一意に定まるので注入だけなら不要。**リクエストの置き場所**として立てる（規約 14） |
+| ドメインサービス | TADA 由来の共通インターフェースは無く、注入だけなら口は不要。**リクエストの置き場所**として立てる（規約 14） |
 | クエリサービス | セッション型引数は無い。**レスポンス型をそのクエリに固定する**ため（規約 14） |
 
 → [use-case.md](use-case.md#ユースケースにはセッション型引数を持たない口を立てる)、
@@ -642,13 +651,14 @@ public interface ICreateUserCommandService
     sealed record Res(Guid UserId) : ICommandServiceDTO;
 }
 
-// ドメインサービスも同じ。セッションは口の型引数をそのまま使う
+// ドメインサービスも同じ考え方。継承する共通インターフェースは無いので ExecuteAsync を自分で宣言する。
+// セッションは口の型引数をそのまま使う
 public interface IUserNameUniquenessService<TUserSession>
-    : IDomainService<IUserNameUniquenessService<TUserSession>.Req>
     where TUserSession : IDisposable
 {
-    sealed record Req(TUserSession Session, UserName Name, UserId ExceptUserId)
-        : IDomainServiceDTO;
+    sealed record Req(TUserSession Session, UserName Name, UserId ExceptUserId);
+
+    ValueTask ExecuteAsync(Req req, CancellationToken cancellationToken = default);
 }
 
 // クエリサービスも同じ
@@ -661,9 +671,9 @@ public interface ISearchUsersQueryService
 }
 ```
 
-**なぜ:** `ICommandService` / `IQueryService` / `IDomainService` を継承した時点で
-**「メソッドは 1 つ、リクエスト 1 型、レスポンス 1 型」が確定している。**
-DTO は口と 1 対 1 に対応するのだから、口から辿れる場所に置くのが自然な帰結になる。
+**なぜ:** `ICommandService` / `IQueryService` を継承した時点で（ドメインサービスは
+`ExecuteAsync` を自分で宣言した時点で）**「メソッドは 1 つ、リクエスト 1 型、レスポンス 1 型」が
+確定している。** DTO は口と 1 対 1 に対応するのだから、口から辿れる場所に置くのが自然な帰結になる。
 
 - **口から辿れる。** `ICreateUserCommandService.Req` は必ずそこにある。
   平らに並んだ `~Req` 群を名前で探さなくてよい
@@ -680,14 +690,17 @@ DTO は口と 1 対 1 に対応するのだから、口から辿れる場所に�
 
 ## その他の細かい規約
 
-### `ValueObjectLengthException` は名前付き引数で投げる
+### 長さの例外は名前付き引数で投げる
+
+値オブジェクトの長さ検証で `MinLength` / `MaxLength` / `CurrentLength` の 3 つを保持する
+自前の例外（`UserNameLengthException` など）を定義する場合、この 3 つは**すべて `int`** になる。
 
 ```csharp
 // ✗ 順番を間違えてもコンパイルが通り、間違った境界値がログに出る
-throw new ValueObjectLengthException(value.Length, MinLength, MaxLength);
+throw new UserNameLengthException(value.Length, MinLength, MaxLength);
 
 // ✓
-throw new ValueObjectLengthException(
+throw new UserNameLengthException(
     minLength: MinLength, maxLength: MaxLength, currentLength: value.Length);
 ```
 
@@ -701,19 +714,20 @@ throw new ValueObjectLengthException(
 
 ### DTO は `record` で宣言し、口の中にネストする
 
-`ICommandServiceDTO` / `IQueryServiceDTO` / `IDomainServiceDTO` はいずれもマーカーで、
-3 種のサービスが互いの DTO を受け取ってしまうのを防ぐためだけにある。
+`ICommandServiceDTO` / `IQueryServiceDTO` はいずれもマーカーで、
+コマンドサービスとクエリサービスが互いの DTO を受け取ってしまうのを防ぐためだけにある
+（ドメインサービスにはこの種のマーカーが無い。→ [domain-model.md](domain-model.md#ドメインサービス)）。
 置き場所はそれを使うサービスの口の中（`Req` / `Res`）→ 規約 14。
 
 | DTO | セッションを持つか | エンティティを持つか |
 |---|---|---|
 | `ICommandServiceDTO` | **持たない**（自分で開始する） | 持たない |
 | `IQueryServiceDTO` | 未コミットを読む必要があるときだけ | 持たない |
-| `IDomainServiceDTO` | **持つ**（伝える経路が他に無い） | 持ってよい |
+| ドメインサービスの `Req`（マーカー無し） | **持つ**（伝える経路が他に無い） | 持ってよい |
 
 ### `IQueryService<TRes>` の型引数はレスポンス
 
-`ICommandService<TReq>` / `IDomainService<TReq>` の 1 つ目はリクエストだが、
+`ICommandService<TReq>` の 1 つ目はリクエストだが、
 `IQueryService<TRes>` の 1 つ目は**レスポンス**。引数があるときは
 迷わず `IQueryService<TReq, TRes>` を使えばよい。
 

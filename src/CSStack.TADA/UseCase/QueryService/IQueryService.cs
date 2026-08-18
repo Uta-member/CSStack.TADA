@@ -56,7 +56,7 @@
 	/// <typeparam name="TRes">
 	/// <b>Response</b> type — not the request. A query with nothing to ask for still has something to
 	/// return, so the single type parameter here is the response, whereas the single type parameter of
-	/// <see cref="ICommandService{TReq}"/> and <see cref="IDomainService{TReq}"/> is the request.
+	/// <see cref="ICommandService{TReq}"/> is the request.
 	/// <c>IQueryService&lt;Foo&gt;</c> means "returns <c>Foo</c>"; <c>ICommandService&lt;Foo&gt;</c> means
 	/// "takes <c>Foo</c>". Reach for <see cref="IQueryService{TReq, TRes}"/> whenever there is a request,
 	/// and the ambiguity does not arise.

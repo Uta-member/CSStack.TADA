@@ -31,6 +31,9 @@
 		/// <inheritdoc/>
 		public abstract TIdentifier Identifier { get; }
 
+		/// <inheritdoc/>
+		public abstract void Validate();
+
 		/// <summary>
 		/// Identity equality. See <see cref="Equals(TSelf)"/>.
 		/// </summary>

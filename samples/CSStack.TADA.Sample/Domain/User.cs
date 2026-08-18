@@ -62,12 +62,12 @@
         /// 「1 つのエンティティで完結するルール」はエンティティ自身に置く。
         /// 集約をまたぐルール（名前の重複禁止など）はドメインサービスの仕事。
         /// </remarks>
-        /// <exception cref="DomainInvalidOperationException">利用停止中のユーザーだった。</exception>
+        /// <exception cref="UserSuspendedException">利用停止中のユーザーだった。</exception>
         public void Rename(UserName name)
         {
             if (IsSuspended)
             {
-                throw new DomainInvalidOperationException("利用停止中のユーザーは名前を変更できません。");
+                throw new UserSuspendedException("利用停止中のユーザーは名前を変更できません。");
             }
 
             Name = name;
@@ -79,6 +79,18 @@
         public void Suspend()
         {
             IsSuspended = true;
+        }
+
+        /// <summary>
+        /// 不変条件を確かめる。破っていれば例外を投げる。
+        /// </summary>
+        /// <remarks>
+        /// エンティティの検証は、持っている値オブジェクトの検証に委譲すればよいことが多い。
+        /// </remarks>
+        public override void Validate()
+        {
+            Identifier.Validate();
+            Name.Validate();
         }
     }
 }

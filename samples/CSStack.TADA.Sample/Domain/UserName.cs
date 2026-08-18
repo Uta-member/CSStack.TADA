@@ -4,13 +4,12 @@
     /// ユーザー名。長さの制約を持つ単一値オブジェクト。
     /// </summary>
     /// <remarks>
-    /// <see cref="ILengthDefinedSingleValueObject"/> は長さの上下限を<b>公開する</b>だけで、強制はしない。
+    /// <see cref="MaxLength"/> / <see cref="MinLength"/> は長さの上下限を<b>公開する</b>だけで、強制はしない。
     /// 強制するのは <see cref="Create"/>。プレゼンテーション層は
     /// <c>UserName.MaxLength</c> をそのまま入力欄の <c>maxlength</c> に使えるので、
     /// 同じ数字を 2 箇所に書かずに済む。
     /// </remarks>
-    public sealed record UserName
-        : ISingleValueObject<string, UserName>, ISingleValueObject<string>, ILengthDefinedSingleValueObject
+    public sealed record UserName : ISingleValueObject<string, UserName>, ISingleValueObject<string>
     {
         private UserName(string value)
         {
@@ -35,23 +34,11 @@
         /// <summary>
         /// 外部からの入力から生成する。検証はここに書く。
         /// </summary>
-        /// <exception cref="ValueObjectNullException"><paramref name="value"/> が null。</exception>
-        /// <exception cref="ValueObjectLengthException">長さが <see cref="MinLength"/>〜<see cref="MaxLength"/> の外。</exception>
+        /// <exception cref="UserNameInvalidException"><paramref name="value"/> が null。</exception>
+        /// <exception cref="UserNameLengthException">長さが <see cref="MinLength"/>〜<see cref="MaxLength"/> の外。</exception>
         public static UserName Create(string value)
         {
-            if (value is null)
-            {
-                throw new ValueObjectNullException($"{nameof(UserName)} に null は指定できません。");
-            }
-            if (value.Length < MinLength || value.Length > MaxLength)
-            {
-                // 引数が 3 つとも int なので、順番を間違えてもコンパイルは通る。名前付き引数で渡す。
-                throw new ValueObjectLengthException(
-                    minLength: MinLength,
-                    maxLength: MaxLength,
-                    currentLength: value.Length);
-            }
-
+            CheckInvariants(value);
             return new UserName(value);
         }
 
@@ -69,6 +56,36 @@
         public override string ToString()
         {
             return Value;
+        }
+
+        /// <summary>
+        /// 不変条件を確かめる。破っていれば例外を投げる。
+        /// </summary>
+        /// <remarks>
+        /// <see cref="Create"/> と同じ検証をここでも使えるようにし、<c>Reconstruct</c> で
+        /// 復元した後に検証したいときはこちらを呼ぶ。
+        /// </remarks>
+        /// <exception cref="UserNameInvalidException">値が null。</exception>
+        /// <exception cref="UserNameLengthException">長さが <see cref="MinLength"/>〜<see cref="MaxLength"/> の外。</exception>
+        public void Validate()
+        {
+            CheckInvariants(Value);
+        }
+
+        private static void CheckInvariants(string value)
+        {
+            if (value is null)
+            {
+                throw new UserNameInvalidException($"{nameof(UserName)} に null は指定できません。");
+            }
+            if (value.Length < MinLength || value.Length > MaxLength)
+            {
+                // 引数が 3 つとも int なので、順番を間違えてもコンパイルは通る。名前付き引数で渡す。
+                throw new UserNameLengthException(
+                    minLength: MinLength,
+                    maxLength: MaxLength,
+                    currentLength: value.Length);
+            }
         }
     }
 }

@@ -1,6 +1,6 @@
 # API リファレンス
 
-公開型は **35 個**。すべてフラットな `CSStack.TADA` namespace にあるので、
+公開型は **25 個**。すべてフラットな `CSStack.TADA` namespace にあるので、
 `using CSStack.TADA;` の 1 行で全部使える。
 
 このページは「どの型が何のためにあるか」と「型引数の意味」の索引。
@@ -18,15 +18,19 @@
 | 分類 | 型 |
 |---|---|
 | エンティティ | [`IEntity<TIdentifier>`](#ientitytidentifier) / [`EntityBase<TSelf, TIdentifier>`](#entitybasetself-tidentifier) |
-| 値オブジェクト | [`IValueObject`](#ivalueobject) / [`ISingleValueObject<TValue>`](#isinglevalueobjecttvalue) / [`ISingleValueObject<TValue, TSelf>`](#isinglevalueobjecttvalue-tself) / [`ILengthDefinedSingleValueObject`](#ilengthdefinedsinglevalueobject) |
+| 値オブジェクト | [`IValueObject`](#ivalueobject) / [`ISingleValueObject<TValue>`](#isinglevalueobjecttvalue) / [`ISingleValueObject<TValue, TSelf>`](#isinglevalueobjecttvalue-tself) |
 | リポジトリ | [`IRepository<...>`](#irepositorytentity-tentityidentifier-toperateinfo-tsession) / [`IRepositoryDeletable<...>`](#irepositorydeletabletentity-tentityidentifier-toperateinfo-tsession) |
 | 集約サービス | [`IAggregateService<...>`](#iaggregateservicetentity-tentityidentifier-trepository-toperateinfo-tsession) / [`AggregateServiceBase<...>`](#aggregateservicebasetentity-tentityidentifier-trepository-toperateinfo-tsession) |
-| ドメインサービス | [`IDomainService<TReq>`](#idomainservicetreq) / [`IDomainService<TReq, TRes>`](#idomainservicetreq-tres) / [`IDomainServiceDTO`](#idomainservicedto) |
 | コマンドサービス | [`ICommandService<TReq>`](#icommandservicetreq) / [`ICommandService<TReq, TRes>`](#icommandservicetreq-tres) / [`ICommandServiceDTO`](#icommandservicedto) |
 | クエリサービス | [`IQueryService<TReq, TRes>`](#iqueryservicetreq-tres) / [`IQueryService<TRes>`](#iqueryservicetres) / [`IQueryServiceDTO`](#iqueryservicedto) |
 | トランザクション | [`ITransactionManager`](#itransactionmanager) / [`TransactionManager`](#transactionmanager) / [`TransactionSessions`](#transactionsessions) / [`ITransactionService`](#itransactionservice) / [`ITransactionService<TSession>`](#itransactionservicetsession) |
 | ユーティリティ | [`Optional<TValue>`](#optionaltvalue) / [`OptionalExtensions`](#optionalextensions) |
-| 例外 | [`TADAException`](#tadaexception) 以下 9 個（[例外](#例外)） |
+| 例外 | [`TADAException`](#tadaexception) ほか 2 個（[例外](#例外)） |
+
+> **ドメインサービスはこの表に出てこない。** かつての `IDomainService<TReq>` /
+> `IDomainService<TReq, TRes>` / `IDomainServiceDTO` は v3.0.0 で削除され、
+> TADA が用意する型が無くなったため。口を立てる規約自体は残っている
+> → [use-case.md](use-case.md#3-種のサービスの使い分け)。
 
 ---
 
@@ -59,14 +63,21 @@
 
 ### `IEntity<TIdentifier>`
 
-エンティティのインターフェース。要求するのは `Identifier` プロパティ 1 つだけ。
+エンティティのインターフェース。要求するのは `Identifier` プロパティと `Validate()` メソッド。
 
 ```csharp
 TIdentifier Identifier { get; }
+void Validate();
 ```
 
 通常は `EntityBase` を継承する。別の基底クラスが必要なときだけ直接実装し、
 そのときは識別子による等価性を自分で実装する。
+
+`Validate()` は既定実装が無いので必須メンバー。**構築時の検証を置き換えるものではない。**
+`Create` はそのままで、`Reconstruct` で古いルールのデータを復元した後などに、
+任意のタイミングで不変条件を再チェックするための別経路。戻り値は `void` 固定で、
+破っていれば例外を投げる（どの例外を投げるかはライブラリが指定しない）。
+実装は持っている値オブジェクトの `Validate()` へ委譲すればよいことが多い。
 
 ### `EntityBase<TSelf, TIdentifier>`
 
@@ -80,6 +91,8 @@ public sealed class User : EntityBase<User, UserId>
 - 基底クラスを共有する `Admin` と `Guest` は、識別子が同じでも等価にならない
 - `==` / `!=` / `Equals` / `GetHashCode` を提供する
 - `Create` / `Reconstruct` は**強制されない**（値オブジェクトと違う点）が、揃えることを推奨
+- `Validate()` は `public abstract void Validate();` として宣言し直されている。
+  派生クラスは必ず実装する（`IEntity<TIdentifier>` から継承した必須メンバー）
 
 → [domain-model.md](domain-model.md#エンティティ)
 
@@ -89,16 +102,27 @@ public sealed class User : EntityBase<User, UserId>
 
 ### `IValueObject`
 
-値オブジェクトのマーカー。メンバーは無い。
+値オブジェクトのインターフェース。メンバーは `Validate()` のみ。
+
+```csharp
+void Validate();
+```
 
 **`record` で実装すること。** `class` だと参照等価のままになり、
-同じ値を持つインスタンスが等価にならない。マーカーなのでこれを強制できない。
+同じ値を持つインスタンスが等価にならない。インターフェースなのでこれを強制できない。
 
 `ValueObjectBase` は v2.0.0 で削除された（`record` のほうが適切なため）。
 
+`Validate()` は既定実装が無いので必須メンバー。**構築時の検証を置き換えるものではない。**
+`Create` を通った時点で検証済みなので `Create` の中から呼ぶ必要はない。用意した理由は、
+あるインスタンスが `Create` を通ったかどうかを外部から検証する術が無いため。`Reconstruct`
+の後に使うのはその一例に過ぎず、`Validate()` 自体は何にも依存しない——単に今の値が現行の
+不変条件を満たしているかを確認するだけのプリミティブ。`Create` と `Validate` は同じ
+`private` ヘルパーへ検証ロジックを集約するとよい。
+
 ### `ISingleValueObject<TValue>`
 
-単一の値を包む値オブジェクト。`Value` プロパティのみ。
+単一の値を包む値オブジェクト。`Value` プロパティのみ（`IValueObject` を継承するので `Validate()` も持つ）。
 
 「`TValue` を包む値オブジェクトなら何でも」をジェネリック制約で受けたいときに使う。
 型引数 2 個のほうは `static abstract` メンバーを持つため、制約に使うと具体型も名指しする必要がある。
@@ -111,27 +135,22 @@ public sealed class User : EntityBase<User, UserId>
 static abstract TSelf Create(TValue value);       // 検証あり。外部入力用
 static abstract TSelf Reconstruct(TValue value);  // 検証なし。永続化からの復元用
 TValue Value { get; }
+void Validate();                                  // IValueObject から継承
 ```
 
-- **検証は `Create` の中だけ。** `Validate` メンバーは存在しない（v2.0.0 で削除）
+- **構築時の検証は `Create` の中だけ。** `Validate()` は別経路で、`Create` の代わりではない
+  （`Create` を通ったかどうかを外部から検証する術が無いために用意した独立のプリミティブ）
 - **`Reconstruct` が検証しないのは意図的。** ルールを厳しくした後でも古いデータを読み戻せるようにするため
 - コンストラクタは private にする
-- 不正な値は `ValueObjectInvalidException`（またはその派生）を投げる。sentinel を返さない
+- 不正な値は投げる。**TADA は値オブジェクト用の例外クラスを提供しない**ので、
+  プロジェクト自身が定義した例外（または `ArgumentException` のような BCL の例外）を投げる。
+  sentinel を返さない
 
 `static abstract` を使うため **C# 11 以上が必要**。
 
-### `ILengthDefinedSingleValueObject`
-
-長さの上下限を**公開する**インターフェース。型引数は無い。
-
-```csharp
-static abstract int MaxLength { get; }
-static abstract int MinLength { get; }
-```
-
-**公開するだけで強制はしない。** 強制するのは `Create`。
-インスタンスを作らずに読めるので、画面側が `UserName.MaxLength` を
-そのまま `maxlength` に使える（同じ数字を 2 箇所に書かなくて済む）。
+長さの上下限を公開したい値オブジェクトは、`ILengthDefinedSingleValueObject`
+（v3.0.0 で削除）を介さず、`public static int MaxLength => ...;` / `MinLength` を
+**素の static メンバーとして**宣言するだけでよい。公開するだけで強制はしない。
 
 → [domain-model.md](domain-model.md#値オブジェクト)
 
@@ -153,9 +172,9 @@ ValueTask SaveAsync(
 ```
 
 - **`FindByIdentifierAsync` は不在を `Optional<T>.Empty` で返す。** `return null;` は
-  `Some(null)` になるので禁止。`ObjectNotFoundException` も投げない
+  `Some(null)` になるので禁止。見つからないことをそのまま例外にもしない
 - **`SaveAsync` は upsert。** 「既に居る / 居ない」で失敗させない。
-  `ObjectAlreadyExistException` も `ObjectNotFoundException` も投げない
+  既に居ることも見つからないことも例外にしない
 - **検索系メソッドを足さない。** 一覧・条件検索は `IQueryService`
 - セッションは引数で受け取るだけ。begin / commit / dispose しない
 - **`TSession` に具体型を渡さない。** 派生インターフェースも
@@ -192,7 +211,7 @@ ValueTask<Optional<TEntity>> GetEntityByIdentifierAsync(
 その上のリポジトリが 1 つ、エンティティに到達できるサービスが 1 つ」という
 TADA の集約の定義を型で書いている。
 
-不在は `Optional<T>.Empty` を返す。`ObjectNotFoundException` に変えるのは、
+不在は `Optional<T>.Empty` を返す。それを例外に変えるのは、
 エンティティの存在を要求する具体的なメソッドの側。
 
 **これを継承した集約サービスのインターフェースを宣言し、その実装を
@@ -237,42 +256,33 @@ public sealed class UserAggregateService<TSession>
 
 ---
 
-## ドメインサービス
+## ドメインサービス（TADA 由来の型は無い）
 
-### `IDomainService<TReq>`
+`IDomainService<TReq>` / `IDomainService<TReq, TRes>` / `IDomainServiceDTO` は v3.0.0 で
+削除された。集約サービスやユースケースと違い、ドメインサービスは扱う対象・引数・戻り値の形が
+プロジェクトごとに柔軟すぎて、共通の親インターフェースを立てても「メソッド名と Req/Res の形を
+強制するだけ」の効果しかなく、実際に使う場面がほとんど無かったため。
 
-集約をまたぐルール、またはエンティティに持たせるべきでないルール。
-
-```csharp
-ValueTask ExecuteAsync(TReq req, CancellationToken cancellationToken = default);
-```
-
-- **トランザクションを開始しない。** `ITransactionManager` を注入してはいけない
-- **セッション引数が無いので、DTO にセッションを載せて渡す**
-- 1 エンティティで完結するルールはエンティティ自身に、
-  1 集約で完結するなら集約サービスに、オーケストレーションはコマンドサービスに置く
-- **専用の口を立て、リクエストをその中にネストする**
+**「専用の口を立て、リクエストをその中に `Req` としてネストする」という規約自体は変わらない。**
+継承する型が無いので、`ExecuteAsync` を自分で 1 つ宣言する。
 
 ```csharp
 public interface IUserNameUniquenessService<TUserSession>
-    : IDomainService<IUserNameUniquenessService<TUserSession>.Req>
     where TUserSession : IDisposable
 {
-    sealed record Req(TUserSession Session, UserName Name, UserId ExceptUserId)
-        : IDomainServiceDTO;
+    sealed record Req(TUserSession Session, UserName Name, UserId ExceptUserId);
+
+    ValueTask ExecuteAsync(Req req, CancellationToken cancellationToken = default);
 }
 ```
 
-### `IDomainService<TReq, TRes>`
+- **トランザクションを開始しない。** `ITransactionManager` を注入してはいけない
+- **セッション引数が無いので、`Req` にセッションを載せて渡す**（マーカーが無いのでただの `record`）
+- 1 エンティティで完結するルールはエンティティ自身に、
+  1 集約で完結するなら集約サービスに、オーケストレーションはコマンドサービスに置く
 
-戻り値があるドメインサービス。契約は同じ。
-
-### `IDomainServiceDTO`
-
-ドメインサービスの DTO マーカー。`record` で宣言し、そのドメインサービスの口の中にネストする。
-**3 種の DTO のうち、これだけがセッションを持つ。** エンティティや値オブジェクトも持ってよい。
-
-→ [use-case.md](use-case.md#3-種のサービスの使い分け)
+→ [samples/CSStack.TADA.Sample/Domain/UserNameUniquenessService.cs](../samples/CSStack.TADA.Sample/Domain/UserNameUniquenessService.cs)、
+[use-case.md](use-case.md#3-種のサービスの使い分け)
 
 ---
 
@@ -328,7 +338,7 @@ public sealed class CreateUserCommandService<TUserSession> : ICreateUserCommandS
 **セッションもエンティティも持たない。**
 
 値オブジェクトへの変換はコマンドサービスの仕事で、
-不正な入力は `ValueObjectInvalidException` で報告される。
+不正な入力は `Create` が例外を投げて報告する（例外の型はプロジェクト側で定義する）。
 
 → [use-case.md](use-case.md#コマンドサービスがトランザクションの境界)
 
@@ -366,10 +376,9 @@ public interface ISearchUsersQueryService
 
 引数を取らないクエリサービス。
 
-> **型引数 1 個は「レスポンス」。** `ICommandService<TReq>` /
-> `IDomainService<TReq>` の 1 個目がリクエストなのと逆になっている。
-> `IQueryService<Foo>` は「`Foo` を返す」、`ICommandService<Foo>` は「`Foo` を受け取る」。
-> 引数があるときは迷わず `IQueryService<TReq, TRes>` を使えばよい。
+> **型引数 1 個は「レスポンス」。** `ICommandService<TReq>` の 1 個目がリクエストなのと
+> 逆になっている。`IQueryService<Foo>` は「`Foo` を返す」、`ICommandService<Foo>` は
+> 「`Foo` を受け取る」。引数があるときは迷わず `IQueryService<TReq, TRes>` を使えばよい。
 
 ```csharp
 ValueTask<TRes> ExecuteAsync(CancellationToken cancellationToken = default);
@@ -559,83 +568,27 @@ services.AddScoped<ITransactionService<AppSession>, AppTransactionService>();
 
 ## 例外
 
-すべて `TADAException` を継承する。
+すべて `TADAException` を継承する。**ライブラリ自身が実際に投げるのはこの 3 個だけ。**
 
 ```
 Exception
 └─ TADAException
-   ├─ DomainInvalidOperationException
    ├─ NestedTransactionException
-   ├─ ObjectNotFoundException
-   ├─ ObjectAlreadyExistException
-   ├─ TransactionSessionNotFoundException
-   └─ ValueObjectInvalidException
-      ├─ ValueObjectNullException
-      └─ ValueObjectLengthException
+   └─ TransactionSessionNotFoundException
 ```
 
-> `DomainInvalidOperationException` だけは `TADAException` を継承しつつ
-> プライマリコンストラクタで宣言されている。捕捉の観点では他と同じ。
+**ドメイン向けの例外クラス（不在・重複・不変条件違反など）はもう提供しない。**
+かつてあった `DomainInvalidOperationException` / `ObjectAlreadyExistException` /
+`ObjectNotFoundException` / `ValueObjectInvalidException` / `ValueObjectNullException` /
+`ValueObjectLengthException` は v3.0.0 で削除された。中途半端なヘルパーを提供するより、
+各プロジェクトが自分のドメインの語彙で例外を定義したほうが健全と判断したため。
+何を投げるかは利用側が決める（単純な不変条件なら `ArgumentException` のような
+BCL の例外で足りることもある）
+→ [samples/CSStack.TADA.Sample/Domain/UserExceptions.cs](../samples/CSStack.TADA.Sample/Domain/UserExceptions.cs)。
 
 ### `TADAException`
 
 すべての基底。`(string? message = null, Exception? innerException = null)`。
-
-### `ObjectNotFoundException`
-
-**必要な対象が存在しなかった。**
-
-```csharp
-throw new ObjectNotFoundException(typeof(User), identifier);
-```
-
-`ObjectType` / `Identifier` プロパティを持つ。**情報付きのコンストラクタを推奨** —
-呼び出し側でメッセージを組み立てなくてもログに型と識別子が出る。
-
-**リポジトリは投げない。** 不在は `Optional<T>.Empty` で返り、
-異常とみなすかは集約サービス / ユースケースが決める。
-
-### `ObjectAlreadyExistException`
-
-**存在してはいけない対象が存在した。**
-
-```csharp
-throw new ObjectAlreadyExistException(typeof(User), email);
-```
-
-`ObjectType` / `Identifier` プロパティを持つ。`Identifier` には主キーではなく、
-一意でなければならない値（重複したメールアドレスなど）を渡すことが多い。
-
-**リポジトリは投げない。** `SaveAsync` は upsert なので、既存レコードは失敗ではない。
-
-> `Identifier` の `ToString()` が生成メッセージに入る。**秘密の値を渡さないこと。**
-
-### `DomainInvalidOperationException`
-
-ドメイン上許されない操作が行われた（利用停止中のユーザーを改名する、など）。
-
-### `ValueObjectInvalidException`
-
-値オブジェクトの不変条件に違反した。`Create` の中から投げる。
-
-### `ValueObjectNullException`
-
-`ValueObjectInvalidException` の派生。値が null だった。
-
-### `ValueObjectLengthException`
-
-`ValueObjectInvalidException` の派生。長さが範囲外だった。
-`MinLength` / `MaxLength` / `CurrentLength` プロパティを持つ。
-
-```csharp
-throw new ValueObjectLengthException(
-    minLength: MinLength, maxLength: MaxLength, currentLength: value.Length);
-```
-
-> **引数が 3 つとも `int`。** 順番を間違えてもコンパイルが通り、
-> 間違った境界値がログに出る。順番は
-> `minLength` → `maxLength` → `currentLength`（宣言された上下限が先、弾かれた長さが最後）。
-> **名前付き引数で渡すこと。**
 
 ### `TransactionSessionNotFoundException`
 

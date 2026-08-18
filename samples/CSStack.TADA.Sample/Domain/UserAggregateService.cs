@@ -20,7 +20,7 @@
     /// </para>
     /// <para>
     /// <b>「存在しないのはエラーか」を決めるのはこの層。</b> リポジトリは不在を
-    /// <c>Optional&lt;User&gt;.Empty</c> で返すだけで <see cref="ObjectNotFoundException"/> を投げない。
+    /// <c>Optional&lt;User&gt;.Empty</c> で返すだけで <see cref="UserNotFoundException"/> を投げない。
     /// 「存在しなければ失敗」という操作なのかどうかは、操作する側にしか分からないため。
     /// </para>
     /// <para>
@@ -65,7 +65,7 @@
             var existing = await GetEntityByIdentifierAsync(session, user.Identifier, cancellationToken);
             if (existing.HasValue)
             {
-                throw new ObjectAlreadyExistException(typeof(User), user.Identifier);
+                throw new UserAlreadyExistsException($"ユーザー '{user.Identifier}' は既に存在します。");
             }
 
             await Repository.SaveAsync(session, user, operateInfo, cancellationToken);
@@ -92,7 +92,7 @@
         }
 
         /// <summary>
-        /// ユーザーを取得する。存在しなければ <see cref="ObjectNotFoundException"/> を投げる。
+        /// ユーザーを取得する。存在しなければ <see cref="UserNotFoundException"/> を投げる。
         /// </summary>
         /// <remarks>
         /// <para>
@@ -106,7 +106,7 @@
         /// 読み取り目的なら <see cref="IQueryService{TRes}"/> の仕事。
         /// </para>
         /// </remarks>
-        /// <exception cref="ObjectNotFoundException">該当するユーザーが存在しない。</exception>
+        /// <exception cref="UserNotFoundException">該当するユーザーが存在しない。</exception>
         private async ValueTask<User> GetRequiredAsync(
             TSession session,
             UserId identifier,
@@ -117,7 +117,7 @@
             // Optional<T> から取り出すときは TryGetValue / Match を使う。
             if (!found.TryGetValue(out var user))
             {
-                throw new ObjectNotFoundException(typeof(User), identifier);
+                throw new UserNotFoundException(identifier.Value);
             }
 
             return user;

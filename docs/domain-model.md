@@ -70,7 +70,8 @@ public sealed class UserAggregateService<TSession>
 		if (!optional.TryGetValue(out var user))
 		{
 			// 「見つからないことが問題か」を決めるのはこの層。リポジトリではない
-			throw new ObjectNotFoundException(typeof(User), userId.Value);
+			// UserNotFoundException はこのプロジェクトが自分で定義する例外（TADA は提供しない）
+			throw new UserNotFoundException(userId.Value);
 		}
 
 		await Repository.SaveAsync(session, user.ChangeName(newName), operateInfo, cancellationToken);
@@ -98,7 +99,7 @@ ValueTask SaveAsync(TSession s, User u, OperateInfo o, CancellationToken ct = de
 上の `ChangeNameAsync` のように、**「取得する → 変更する → 保存する」を 1 つの操作に閉じます。**
 そうすればエンティティを集約の外へ出さずに済みます。逆にエンティティを返してしまうと、
 上の層で書き換えても保存する手段が口に無く、「変更したつもりが何も起きない」コードが書けます。
-不在を `ObjectNotFoundException` にするヘルパーは便利ですが、**`private` に留めてください。**
+不在を例外にするヘルパー（`GetRequiredAsync` など）は便利ですが、**`private` に留めてください。**
 読み取りが目的なら、それはクエリサービスの仕事です。
 
 リポジトリの `SaveAsync` を呼ぶのはこの層までで、ユースケースからは呼びません。
@@ -113,7 +114,8 @@ services.AddScoped<IUserAggregateService<AppSession>, UserAggregateService<AppSe
 
 ## エンティティ
 
-エンティティに必須なのは **識別子を持つこと**、そして **識別子で等価性を判断すること** の 2 つだけです。
+エンティティに必須なのは **識別子を持つこと**、**識別子で等価性を判断すること**、
+そして **`Validate()` を実装すること** の 3 つです。
 
 ```csharp
 public class User : EntityBase<User, UserId>
@@ -147,8 +149,29 @@ public class User : EntityBase<User, UserId>
 	{
 		return new User(Identifier, newName, RegisteredAt);
 	}
+
+	/// 不変条件を確かめる。破っていれば例外を投げる。持っている値オブジェクトへ委譲すればよいことが多い
+	public override void Validate()
+	{
+		Identifier.Validate();
+		Name.Validate();
+	}
 }
 ```
+
+### `Validate()` は構築時の検証を置き換えない
+
+`IEntity<TIdentifier>` は `Validate()` を要求します（既定実装は無いので、実装は必須）。
+`EntityBase<TSelf, TIdentifier>` はこれを `public abstract void Validate();` として宣言し直しているので、
+派生クラスは必ず実装します。
+
+**構築時の検証は引き続き `Create` の仕事です。** `Validate()` はそれを置き換えるものではなく、
+`Reconstruct` で古いルールのデータを復元した後などに、任意のタイミングで不変条件を
+再チェックするための別経路です。戻り値は `void` 固定で、破っていれば例外を投げる運用にします
+（どの例外を投げるかはライブラリが指定しません → [例外を投げる層](#例外を投げる層)）。
+
+エンティティの検証は、上の `User.Validate()` のように**持っている値オブジェクトの検証へ委譲する**
+だけで済むことが多いです。
 
 ### 生成方法は強制しない
 
@@ -208,10 +231,7 @@ public sealed record Email : ISingleValueObject<string, Email> { /* ... */ }
 かつて `ValueObjectBase` がありましたが、`record` のほうが素直なので v2.0.0 で削除しました。
 **復活させません。**
 
-### 検証は `Create` の中に書く
-
-`IValueObject` / `IEntity` から `Validate` を外したのは意図的です。外から呼べる検証メソッドがあると
-「未検証の値オブジェクトが存在しうる」ことになり、値オブジェクトの前提が崩れます。
+### 検証は `Create` の中に書く。`Validate()` は別経路
 
 **コンストラクターを `private` にして、`Create` と `Reconstruct` だけを入口にしてください。**
 そうすれば「存在しているインスタンスは検証を通ったインスタンス」になります。
@@ -225,26 +245,60 @@ public sealed record Email : ISingleValueObject<string, Email> { /* ... */ }
 古い規則のもとで保存されたデータを読み戻せるようにするため**です。
 `Create` はそれを拒否してしまいます。
 
-検証に失敗したら `ValueObjectInvalidException` またはその派生を投げます。
+`IValueObject` は `Validate()` を要求します（既定実装は無いので、実装は必須です）。
+**これは `Create` の代わりではありません。** `Create` を通った時点で検証済みなので、
+`Create` の中から `Validate()` を呼ぶ必要はなく、単に同じチェックを繰り返すだけになります。
+用意した理由は、あるインスタンスが `Create` を通ったかどうかを外部から検証する術が
+無いことです。`Reconstruct` で古いルールのデータを復元した後に使うのはその一例に
+過ぎません。`Validate()` 自体は何かに依存する概念ではなく、単に今の値が現行の不変条件を
+満たしているかどうかを確認するだけのプリミティブなメソッドです。
 
-| 例外 | 用途 |
-|---|---|
-| `ValueObjectInvalidException` | 不変条件違反全般。派生の基底 |
-| `ValueObjectNullException` | 値が無い |
-| `ValueObjectLengthException` | 長さが範囲外。`MinLength` / `MaxLength` / `CurrentLength` を持つ |
-
-`ValueObjectLengthException` の引数は **3 つとも `int`** です。順序を間違えても
-コンパイルが通り、誤った内容の例外になります。順序は
-`minLength`, `maxLength`, `currentLength`（**値オブジェクトが宣言する境界が先、
-弾かれた値の長さが最後**）で、迷うなら名前付き引数で書いてください。
-
-### 長さの制約は `ILengthDefinedSingleValueObject` で公開する
-
-`ILengthDefinedSingleValueObject` は **境界値を公開するだけ** で、検証はしません。
-検証するのは `Create` です。
+**`Create` と `Validate` の検証は同じ `private` ヘルパーに集約してください。**
 
 ```csharp
-public sealed record UserName : ISingleValueObject<string, UserName>, ILengthDefinedSingleValueObject
+public sealed record UserName : ISingleValueObject<string, UserName>
+{
+	private UserName(string value) => Value = value;
+
+	public string Value { get; }
+
+	public static UserName Create(string value)
+	{
+		CheckInvariants(value);
+		return new UserName(value);
+	}
+
+	public static UserName Reconstruct(string value) => new(value);
+
+	public void Validate() => CheckInvariants(Value);
+
+	private static void CheckInvariants(string value)
+	{
+		if (value is null)
+		{
+			throw new UserNameInvalidException($"{nameof(UserName)} must not be null.");
+		}
+	}
+}
+```
+
+検証に失敗したときに何を投げるかは、**このライブラリではなくプロジェクト自身が決めます。**
+TADA は値オブジェクト用の例外クラスを提供しません。`Create` / `Validate` の失敗を
+`UserNameInvalidException` のような自前の例外にするか、単純な不変条件なら
+`ArgumentException` のような BCL の例外で足りることもあります
+（→ [例外を投げる層](#例外を投げる層)）。
+
+### 長さの制約は素の static メンバーで公開する
+
+長さの上下限を公開したい値オブジェクトは、interface を介さず
+`public static int MaxLength => ...;` / `public static int MinLength => ...;` を
+**素の static メンバーとして**宣言するだけです（`ILengthDefinedSingleValueObject` は
+v3.0.0 で削除されました。境界値を公開するためだけの効果しかなく、
+ジェネリック制約以外の用途がありませんでした）。**公開するだけで、強制はしません。**
+強制するのは `Create` です。
+
+```csharp
+public sealed record UserName : ISingleValueObject<string, UserName>
 {
 	private UserName(string value)
 	{
@@ -259,18 +313,7 @@ public sealed record UserName : ISingleValueObject<string, UserName>, ILengthDef
 
 	public static UserName Create(string value)
 	{
-		if (value is null)
-		{
-			throw new ValueObjectNullException($"{nameof(UserName)} must not be null.");
-		}
-		if (value.Length < MinLength || value.Length > MaxLength)
-		{
-			throw new ValueObjectLengthException(
-				minLength: MinLength,
-				maxLength: MaxLength,
-				currentLength: value.Length);
-		}
-
+		CheckInvariants(value);
 		return new UserName(value);
 	}
 
@@ -278,13 +321,33 @@ public sealed record UserName : ISingleValueObject<string, UserName>, ILengthDef
 	{
 		return new UserName(value);
 	}
+
+	public void Validate() => CheckInvariants(Value);
+
+	private static void CheckInvariants(string value)
+	{
+		if (value is null)
+		{
+			throw new UserNameInvalidException($"{nameof(UserName)} must not be null.");
+		}
+		if (value.Length < MinLength || value.Length > MaxLength)
+		{
+			throw new UserNameLengthException(
+				minLength: MinLength,
+				maxLength: MaxLength,
+				currentLength: value.Length);
+		}
+	}
 }
 ```
 
-`ISingleValueObject` を継承しておらず型引数も持たないのは、
-`where T : ILengthDefinedSingleValueObject` という制約だけで境界値に手が届くようにするためです。
-プレゼンテーション層が `maxlength` をドメインと同じ数値から描画でき、
-定数を 2 か所に書かずに済みます。
+`UserNameLengthException` の引数は **3 つとも `int`** にするのが定石です。順序を間違えても
+コンパイルが通り、誤った内容の例外になります。順序は
+`minLength`, `maxLength`, `currentLength`（**値オブジェクトが宣言する境界が先、
+弾かれた値の長さが最後**）で、迷うなら名前付き引数で書いてください。
+
+プレゼンテーション層は `UserName.MaxLength` をそのまま入力欄の `maxlength` に使えるので、
+同じ数字を 2 か所に書かずに済みます。
 
 ### 型引数が 1 個の `ISingleValueObject<TValue>`
 
@@ -402,44 +465,46 @@ public sealed record OperateInfo(string OperatorId, DateTimeOffset OperatedAt);
 
 ## 例外を投げる層
 
-**リポジトリは `ObjectNotFoundException` も `ObjectAlreadyExistException` も投げません。**
+**TADA はドメイン向けの例外クラスを提供しません。** ライブラリ自身が投げるのは
+`NestedTransactionException` と `TransactionSessionNotFoundException`（と基底の `TADAException`）
+だけで、それ以外の例外はプロジェクトが自分のドメインの語彙で定義します
+→ [samples/CSStack.TADA.Sample/Domain/UserExceptions.cs](../samples/CSStack.TADA.Sample/Domain/UserExceptions.cs)。
+
+**リポジトリは「見つからない」も「既に存在する」も例外にしません。**
 
 不在は `Optional<T>.Empty` で返ります。「見つからないこと」が問題かどうかは操作によって違うからです。
 削除済みのものをもう一度削除するのは問題ないかもしれませんが、存在しない口座からの引き落としは問題です。
 **この判断をするのは、そのオブジェクトを必要とした集約サービスかユースケース**です。
 
-| 例外 | 投げる層 | 典型的な状況 |
+| 状況 | 投げる層 | 例（プロジェクトが定義する例外） |
 |---|---|---|
-| `ObjectNotFoundException` | 集約サービス / ユースケース | 対象が必須の操作で `Optional<T>.Empty` が返った |
-| `ObjectAlreadyExistException` | 集約サービス / ユースケース | 一意であるべき対象が既に存在した（登録済みメールアドレス等） |
-| `ValueObjectInvalidException`（派生含む） | 値オブジェクトの `Create` | 不変条件違反 |
-| `DomainInvalidOperationException` | エンティティ / ドメインサービス | 状態的に許されない操作（退会済みユーザーの更新等） |
+| 対象が必須の操作で `Optional<T>.Empty` が返った | 集約サービス / ユースケース | `UserNotFoundException` |
+| 一意であるべき対象が既に存在した（登録済みメールアドレス等） | 集約サービス / ユースケース | `UserAlreadyExistsException` |
+| 値オブジェクトの不変条件違反 | 値オブジェクトの `Create` | `UserNameInvalidException`。単純な不変条件なら `ArgumentException` で足りることもある |
+| 状態的に許されない操作（退会済みユーザーの更新等） | エンティティ / ドメインサービス | `UserSuspendedException` |
 
-### 対象型と識別子を渡す
+### 対象の型と識別子をメッセージに残す
 
-`ObjectNotFoundException` と `ObjectAlreadyExistException` には、**対象の型と識別子を渡す
-コンストラクター**があります。こちらを使ってください。メッセージを手で書かなくても、
-ログから「どの型の、どれが」問題だったのかを追えるようになります。
+TADA は対象の型と識別子を保持する例外クラスをもう提供しませんが、**同じ考え方は自分で
+定義する例外にも持たせられます。** 対象を特定する情報をプロパティとして保持しておけば、
+呼び出し側でメッセージを組み立てなくてもログから「どの型の、どれが」問題だったのかを追えます。
 
 ```csharp
-// 推奨。メッセージは自動生成され、ObjectType / Identifier が例外に残る
-throw new ObjectNotFoundException(typeof(User), userId.Value);
+public sealed class UserNotFoundException : Exception
+{
+	public UserNotFoundException(Guid userId)
+		: base($"ユーザー '{userId}' が見つかりません。")
+	{
+		UserId = userId;
+	}
 
-// メッセージだけの従来のコンストラクターも残っています（ObjectType / Identifier は null）
-throw new ObjectNotFoundException($"User {userId.Value} was not found.");
+	public Guid UserId { get; }
+}
 ```
 
-| メンバー | 内容 |
-|---|---|
-| `ObjectType` | 見つからなかった / 既に存在した対象の型。メッセージだけで生成した場合は `null` |
-| `Identifier` | 引いたときの識別子。渡さなかった場合は `null` |
-
-`ObjectAlreadyExistException` の `Identifier` には、**主キーよりも「一意であるべき値」**を
-渡すことが多くなります（既に使われているメールアドレスなど）。
-どちらの例外も `Identifier` の `ToString()` がメッセージに入るので、
-**秘密の値を渡さないでください。**
-
-第 3 引数に `message` を渡した場合は、自動生成せずそのメッセージを使います。
+一意性違反の例外（`UserAlreadyExistsException` など）についても同様で、
+**主キーよりも「一意であるべき値」**を持たせることが多くなります（重複したメールアドレスなど）。
+メッセージに埋め込む値には、**秘密の値を渡さないでください。**
 
 ---
 
@@ -453,17 +518,23 @@ throw new ObjectNotFoundException($"User {userId.Value} was not found.");
 - 集約をまたぐルール → **ドメインサービス**
 - 順序制御・認可・トランザクション → **コマンドサービス**（→ [use-case.md](use-case.md)）
 
-`IDomainService<TReq>.ExecuteAsync` はセッションを引数に取りません。
-**セッションはリクエスト DTO に載せてください。**
+**TADA にドメインサービス用の共通インターフェースはありません。** 集約サービスやユースケースと
+違い、ドメインサービスは扱う対象・引数・戻り値の形がプロジェクトごとに柔軟すぎて、
+共通の親インターフェースを立てても「メソッド名と Req/Res の形を強制するだけ」の効果しかなく、
+実際に使う場面がほとんど無かったため、`IDomainService<TReq>` / `IDomainService<TReq, TRes>` /
+`IDomainServiceDTO` は v3.0.0 で削除されました。
 
-**そして専用の口を立てて、そのリクエストを口の中に `Req` としてネストします。**
+**それでも「専用の口を立て、リクエストをその中に `Req` としてネストする」という規約自体は
+他の 3 種のサービスと変わりません。** `ExecuteAsync` を自分で 1 つ宣言するだけです。
+セッションを渡す引数はありません。**セッションはリクエスト DTO に載せてください。**
 
 ```csharp
 public interface IEmailUniquenessService<TUserSession>
-	: IDomainService<IEmailUniquenessService<TUserSession>.Req>
 	where TUserSession : IDisposable
 {
-	sealed record Req(TUserSession Session, Email Email) : IDomainServiceDTO;
+	sealed record Req(TUserSession Session, Email Email);
+
+	ValueTask ExecuteAsync(Req req, CancellationToken cancellationToken = default);
 }
 
 public sealed class EmailUniquenessService<TUserSession> : IEmailUniquenessService<TUserSession>
@@ -473,8 +544,11 @@ public sealed class EmailUniquenessService<TUserSession> : IEmailUniquenessServi
 }
 ```
 
-注入するだけなら口は要りません。`IDomainService<TReq>` がリクエスト DTO の型で
-一意に定まる口になっているからです。**口を立てる理由はリクエストの置き場所にあります。**
+→ [samples/CSStack.TADA.Sample/Domain/UserNameUniquenessService.cs](../samples/CSStack.TADA.Sample/Domain/UserNameUniquenessService.cs)
+が動く実例です（`IUserNameUniquenessService<TUserSession>` は何も継承せず、
+`Req` はどのマーカーインターフェースも実装しません）。
+
+注入するだけなら口は要りません。それでも口を立てるのは、**リクエストの置き場所にするためです。**
 DTO を名前空間に平らに置くと、「このドメインサービスに何を渡すのか」を名前で探すことになり、
 口と DTO の対応が誰にも保証されません
 （→ [use-case.md](use-case.md#リクエストとレスポンスは口の中にネストする)）。
@@ -496,11 +570,12 @@ DTO を名前空間に平らに置くと、「このドメインサービスに�
 |---|---|
 | エンティティを定義する | `EntityBase<TSelf, TIdentifier>` を継承し、識別子は値オブジェクトにする |
 | 値オブジェクトを定義する | `sealed record` + `ISingleValueObject<TValue, TSelf>` |
-| 値を検証する | `Create` の中で行い、`ValueObjectInvalidException` 派生を投げる |
+| 値を検証する | `Create` の中で行い、自前の例外（または `ArgumentException`）を投げる |
 | 永続化から復元する | `Reconstruct`（検証しない） |
-| 長さの制約を持たせる | `ILengthDefinedSingleValueObject` で公開し、`Create` で検証する |
+| 不変条件を再チェックする | `Validate()`。`Create` の代わりではなく別経路 |
+| 長さの制約を持たせる | 素の `static int MaxLength` / `MinLength` を公開し、`Create` で検証する |
 | 見つからなかったことを表す | `Optional<T>.Empty` を返す（`return null;` ではない） |
-| 見つからないのを異常とみなす | 集約サービス / ユースケースで `ObjectNotFoundException(typeof(T), id)` |
+| 見つからないのを異常とみなす | 集約サービス / ユースケースで自前の `NotFoundException` を投げる |
 | 保存する | 集約サービスの中から `Repository.SaveAsync`（upsert）。操作情報を必ず渡す |
 | 一覧・条件検索をする | `IQueryService`。リポジトリには足さない |
 | 集約をまたぐルールを書く | ドメインサービス。口を立て、セッションを載せた `Req` をその中にネストする |

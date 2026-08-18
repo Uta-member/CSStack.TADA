@@ -38,14 +38,22 @@ NuGet パッケージ名は `CSStack.TADA`、`net8.0;net10.0` のマルチター
 5. **`IRepository` に検索系メソッドを足さない。** あるのは `FindByIdentifierAsync` と
    `SaveAsync`（upsert）だけ。一覧取得・条件検索は `IQueryService` の仕事
    → [docs/domain-model.md](docs/domain-model.md)
-6. **値オブジェクトは `record` で実装する。** 検証は `Create` の中に書き、
-   `Reconstruct`（永続化からの復元）では検証しない。`Validate` メンバーは存在しない
+6. **値オブジェクトは `record` で実装する。** 構築時の検証は `Create` の中に書き、
+   `Reconstruct`（永続化からの復元）では検証しない。`IValueObject.Validate()` は `Create` を
+   置き換えるものではない——`Create` を通ったかどうかを外部から検証する術が存在しないために
+   用意した独立したメソッドで、何か（`Reconstruct` など）に依存する概念ではなく、単に
+   実際の値が現行の不変条件を満たしているかどうかを確認するだけのプリミティブ。戻り値は
+   `void` 固定で例外を投げる運用（`IEntity` の `Validate()` も同様）。**投げる例外の型は
+   TADA が指定しない**——TADA 自体はもう例外型を提供しないので、利用側が決める
+   → [docs/optional.md](docs/optional.md)
 7. **トランザクションの境界は `ICommandService`。** `ITransactionManager` を注入して
    `ExecuteTransactionAsync` で包み、セッションを下の層へ渡す。それより下の層は
    トランザクションを開始しない → [docs/use-case.md](docs/use-case.md)
    なぜセッションを引き回すのかは → [docs/architecture.md](docs/architecture.md)
-8. **`ObjectNotFoundException` を投げるのはリポジトリではない。** 不在は
-   `Optional<T>.Empty` で返り、それを異常とみなすかは集約サービス / ユースケースが決める
+8. **不在を例外にするかどうかはリポジトリの仕事ではない。** リポジトリは不在を
+   `Optional<T>.Empty` で返すだけで、独自の「見つからない」例外を投げない。それを
+   異常とみなすか、みなすならどんな例外を投げるかは集約サービス / ユースケースが決める
+   （TADA 自体はもうそのための例外型を提供しない）
 9. **トランザクションは入れ子にできない。** 実行中の `ExecuteTransactionAsync` の本体から
    同じマネージャーの `ExecuteTransactionAsync` を呼ぶと `NestedTransactionException`。
    `ITransactionManager` は Scoped なので、**コマンドサービスが別のコマンドサービスを呼ぶと
@@ -63,7 +71,7 @@ NuGet パッケージ名は `CSStack.TADA`、`net8.0;net10.0` のマルチター
    セッション型も違うため）。**具体型が決まるのはインフラ層の実装と、
    ユースケースとリポジトリを結びつけるプレゼンテーション層の DI 登録だけ**
    → [docs/architecture.md](docs/architecture.md)
-10. **4 種のサービスはすべてインターフェースを立ててから実装する。**
+10. **サービスにはすべてインターフェースを立ててから実装する。**
     集約サービスは `IAggregateService` を継承した口
     （`IUserAggregateService<TSession>`）を宣言し、その実装を `AggregateServiceBase` の
     派生クラスとして書く。**基底クラスは実装の詳細**で、上の層に見せる契約ではない
@@ -71,7 +79,10 @@ NuGet パッケージ名は `CSStack.TADA`、`net8.0;net10.0` のマルチター
     ユースケースは**セッション型引数を持たない口**（`ICreateUserCommandService :
     ICommandService<...>`）を立てる。こうするとプレゼンテーション層は
     `<AppSession>` を書かずに解決・実行でき、型引数が現れるのは DI 登録の 1 行だけになる。
-    ドメインサービスとクエリサービスにも口を立てる（理由は 12 の DTO の置き場所）
+    クエリサービスにも口を立てる（理由は 12 の DTO の置き場所）。**ドメインサービスに
+    TADA 由来の共通インターフェースはない**（形がプロジェクトごとに柔軟すぎて、
+    強制しても「メソッド名と Req/Res の形」以上の効果が無かったため）が、口を立てて
+    リクエストをネストする規約自体は同じように適用する
     → [docs/best-practices.md](docs/best-practices.md)
 11. **集約サービスの口に `SaveAsync` のような汎用的な操作を置かない。**
     `IAggregateService` を継承した口は実質的に集約ルートで、並ぶメソッドが
@@ -82,10 +93,11 @@ NuGet パッケージ名は `CSStack.TADA`、`net8.0;net10.0` のマルチター
     口に無い状態が作れる）。`GetRequiredAsync` のようなヘルパーは実装側で `private` に留める
     → [docs/best-practices.md](docs/best-practices.md)
 12. **リクエスト / レスポンスはそれを使う口の中に `Req` / `Res` としてネストする。**
-    `ICommandService` / `IQueryService` / `IDomainService` を継承した時点で
-    「メソッド 1 つ・リクエスト 1 型・レスポンス 1 型」が確定するので、DTO は口と 1 対 1 に対応する。
-    `ICreateUserCommandService.Req` と口から辿れる位置に置く。名前空間に平らに置くと、
-    別のユースケースの DTO を渡しても型が合えばコンパイルが通る。
+    `ICommandService` / `IQueryService` を継承した時点で「メソッド 1 つ・リクエスト 1 型・
+    レスポンス 1 型」が確定するので、DTO は口と 1 対 1 に対応する。ドメインサービスの口には
+    継承する共通インターフェースが無いが、`ExecuteAsync` を自分で 1 つだけ宣言する形にすれば
+    同じ 1 対 1 が保てる。`ICreateUserCommandService.Req` と口から辿れる位置に置く。
+    名前空間に平らに置くと、別のユースケースの DTO を渡しても型が合えばコンパイルが通る。
     ドメインサービスの `Req` は口の型引数（`TUserSession`）をそのまま使ってセッションを載せる。
     複数の口で共有する読み取りモデルは 1 対 1 ではないのでネストしない
     → [docs/use-case.md](docs/use-case.md)
@@ -124,9 +136,10 @@ push / PR では `.github/workflows/ci.yml` が同じことを CI で実行す�
 Directory.Build.props     Version / パッケージメタデータ / LangVersion / 警告設定
 .github/workflows/        CI（build + test）と Release（pack + NuGet publish）
 src/CSStack.TADA/         ライブラリ本体
-  Domain/                 Entity / ValueObject / Repository / DomainService / AggregateService
+  Domain/                 Entity / ValueObject / Repository / AggregateService
   UseCase/                TransactionService / CommandService / QueryService
-  Exceptions/             TADAException とその派生
+  Exceptions/             TADAException と、ライブラリ自身が投げる例外のみ（利用者向けの
+                          例外型はもう提供しない）
   Extensions/             OptionalExtensions
   Utilities/              Optional
 tests/                    テスト（xUnit）

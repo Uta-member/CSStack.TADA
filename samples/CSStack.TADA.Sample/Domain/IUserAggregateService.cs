@@ -39,9 +39,9 @@
         where TSession : IDisposable
     {
         /// <summary>
-        /// ユーザーを削除する。存在しなければ <see cref="ObjectNotFoundException"/>。
+        /// ユーザーを削除する。存在しなければ <see cref="UserNotFoundException"/>。
         /// </summary>
-        /// <exception cref="ObjectNotFoundException">該当するユーザーが存在しない。</exception>
+        /// <exception cref="UserNotFoundException">該当するユーザーが存在しない。</exception>
         ValueTask DeleteAsync(
             TSession session,
             UserId identifier,
@@ -49,9 +49,9 @@
             CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// ユーザーを新規登録する。同じ識別子が既に居れば <see cref="ObjectAlreadyExistException"/>。
+        /// ユーザーを新規登録する。同じ識別子が既に居れば <see cref="UserAlreadyExistsException"/>。
         /// </summary>
-        /// <exception cref="ObjectAlreadyExistException">同じ識別子のユーザーが既に存在する。</exception>
+        /// <exception cref="UserAlreadyExistsException">同じ識別子のユーザーが既に存在する。</exception>
         ValueTask RegisterAsync(
             TSession session,
             User user,
@@ -59,15 +59,15 @@
             CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// ユーザーの名前を変更する。存在しなければ <see cref="ObjectNotFoundException"/>。
+        /// ユーザーの名前を変更する。存在しなければ <see cref="UserNotFoundException"/>。
         /// </summary>
         /// <remarks>
         /// 「取得して、変更して、保存する」をこの 1 つの操作に閉じている。
         /// ユースケースにエンティティを渡して <c>SaveAsync</c> を呼ばせる形にすると、
         /// 保存を忘れても型では気づけず、集約の外でエンティティが書き換わる余地も残る。
         /// </remarks>
-        /// <exception cref="ObjectNotFoundException">該当するユーザーが存在しない。</exception>
-        /// <exception cref="DomainInvalidOperationException">利用停止中のユーザーだった。</exception>
+        /// <exception cref="UserNotFoundException">該当するユーザーが存在しない。</exception>
+        /// <exception cref="UserSuspendedException">利用停止中のユーザーだった。</exception>
         ValueTask RenameAsync(
             TSession session,
             UserId identifier,

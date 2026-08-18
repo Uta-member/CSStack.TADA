@@ -33,7 +33,7 @@
         {
             var tooLong = new string('a', UserName.MaxLength + 1);
 
-            Assert.Throws<ValueObjectLengthException>(
+            Assert.Throws<UserNameLengthException>(
                 () => Optional<string>.Some(tooLong).CreateSingleValueObject<string, UserName>());
         }
 

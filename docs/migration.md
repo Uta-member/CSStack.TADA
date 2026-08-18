@@ -6,6 +6,7 @@
 | 移行 | 規模 | 主な作業 |
 |---|---|---|
 | [v2.x → v3.0.0](#v2x--v300) | **大** | `ITransactionService` 実装の修正、`Optional<T>` の生成方法、エンティティの等価性 |
+| [v3.0.0 内の追加変更](#v300-内の追加変更-validate-の復活と削除された型) | 中〜大 | `Validate` の復活、`ILengthDefinedSingleValueObject` / `IDomainService` 系 / 例外クラスの削除 |
 | [v1.x → v2.0.x](#v1x--v20x) | 中 | 削除された型の置き換え、`Validate` の廃止、依存パッケージの明示 |
 
 ---
@@ -283,6 +284,166 @@ await _transactionManager.ExecuteTransactionAsync<AppSession>(
 
 ---
 
+## v3.0.0 内の追加変更: Validate の復活と削除された型
+
+上の「`TransactionManager` と `Optional<T>`」の変更とは独立に効いてくる、
+同じ v3.0.0 の中での追加変更。**値オブジェクト・エンティティ・ドメインサービス・
+例外を自分で書いているプロジェクトはほぼ確実に影響を受ける。**
+
+### 1. `IValueObject` / `IEntity<TIdentifier>` に `Validate()` を実装する（必須。コンパイルエラーになる）
+
+`IValueObject` と `IEntity<TIdentifier>` に、既定実装の無い `void Validate();` が増えた。
+これらを**直接実装している型はすべてコンパイルエラーになる。** `EntityBase<TSelf, TIdentifier>`
+自身が `public abstract void Validate();` を宣言し直しているので、`EntityBase` を継承している
+**エンティティも例外なく影響を受ける。**
+
+```csharp
+// Before（v3.0.0 のこの変更より前）
+public sealed record UserName : ISingleValueObject<string, UserName>
+{
+    private UserName(string value) => Value = value;
+
+    public string Value { get; }
+
+    public static UserName Create(string value) { /* 検証 */ return new(value); }
+
+    public static UserName Reconstruct(string value) => new(value);
+}
+```
+
+```csharp
+// After
+public sealed record UserName : ISingleValueObject<string, UserName>
+{
+    private UserName(string value) => Value = value;
+
+    public string Value { get; }
+
+    public static UserName Create(string value)
+    {
+        CheckInvariants(value);
+        return new UserName(value);
+    }
+
+    public static UserName Reconstruct(string value) => new(value);
+
+    // 追加が必須。Create の代わりではなく、Create を通ったかどうかを外部から
+    // 検証する術が無いために用意した独立のプリミティブ（Reconstruct 後の再チェックは一例）
+    public void Validate() => CheckInvariants(Value);
+
+    private static void CheckInvariants(string value) { /* Create と共有する検証 */ }
+}
+```
+
+**`Validate()` は構築時の検証を置き換えない。** `Create` はそのままで、
+`Create` と `Validate` の両方から呼べる `private` ヘルパー（`CheckInvariants` など）に
+検証ロジックを集約するのが定石。用意した理由は、あるインスタンスが `Create` を通ったかどうかを
+外部から検証する術が無いためで、`Validate()` 自体は何にも依存しない、今の値が現行の
+不変条件を満たしているかを確認するだけのプリミティブ。エンティティは持っている値オブジェクトの
+`Validate()` へ委譲すればよいことが多い（`samples/CSStack.TADA.Sample/Domain/User.cs` の
+`Validate()` を参照）。戻り値は `void` 固定で、投げる例外の型はライブラリが指定しない。
+
+→ [domain-model.md](domain-model.md#validate-は構築時の検証を置き換えない)
+
+### 2. `ILengthDefinedSingleValueObject` を置き換える（該当すれば。コンパイルエラーになる）
+
+型が削除されたので、実装している値オブジェクトと、
+`where T : ILengthDefinedSingleValueObject` という制約を書いている箇所はコンパイルエラーになる。
+
+```csharp
+// Before
+public sealed record UserName : ISingleValueObject<string, UserName>, ILengthDefinedSingleValueObject
+{
+    public static int MaxLength => 16;
+    public static int MinLength => 1;
+    // ...
+}
+```
+
+```csharp
+// After — interface を介さない素の static メンバーに変える。公開の仕方自体は変わらない
+public sealed record UserName : ISingleValueObject<string, UserName>
+{
+    public static int MaxLength => 16;
+    public static int MinLength => 1;
+    // ...
+}
+```
+
+ジェネリック制約で受けていた側は、制約を外して個別に `MaxLength` / `MinLength` を
+参照する形に直す。
+
+### 3. `IDomainService<TReq>` / `IDomainService<TReq, TRes>` / `IDomainServiceDTO` を置き換える（該当すれば。コンパイルエラーになる）
+
+型が削除されたので、これらを継承・実装している箇所はコンパイルエラーになる。
+
+```csharp
+// Before
+public interface IUserNameUniquenessService<TUserSession>
+    : IDomainService<IUserNameUniquenessService<TUserSession>.Req>
+    where TUserSession : IDisposable
+{
+    sealed record Req(TUserSession Session, UserName Name, UserId ExceptUserId)
+        : IDomainServiceDTO;
+}
+```
+
+```csharp
+// After — 継承する型が無いので ExecuteAsync を自分で 1 つ宣言する。Req はただの record になる
+public interface IUserNameUniquenessService<TUserSession>
+    where TUserSession : IDisposable
+{
+    sealed record Req(TUserSession Session, UserName Name, UserId ExceptUserId);
+
+    ValueTask ExecuteAsync(Req req, CancellationToken cancellationToken = default);
+}
+```
+
+「専用の口を立て、リクエストをその中に `Req` としてネストする」という規約自体は変わらない。
+→ [samples/CSStack.TADA.Sample/Domain/UserNameUniquenessService.cs](../samples/CSStack.TADA.Sample/Domain/UserNameUniquenessService.cs)
+
+### 4. TADA 提供の例外クラスを自前の例外に置き換える（該当すれば。コンパイルエラーになる）
+
+`DomainInvalidOperationException` / `ObjectAlreadyExistException` / `ObjectNotFoundException` /
+`ValueObjectInvalidException` / `ValueObjectLengthException` / `ValueObjectNullException` が
+削除された。これらを `throw` している箇所、`catch` している箇所はコンパイルエラーになる
+（`TADAException` を基底として `catch` している箇所は、その基底自体は残っているので影響しない）。
+
+```csharp
+// Before
+throw new ObjectNotFoundException(typeof(User), identifier);
+throw new ValueObjectLengthException(
+    minLength: MinLength, maxLength: MaxLength, currentLength: value.Length);
+```
+
+```csharp
+// After — ドメインの語彙で自前に定義する
+throw new UserNotFoundException(identifier.Value);
+throw new UserNameLengthException(
+    minLength: MinLength, maxLength: MaxLength, currentLength: value.Length);
+```
+
+単純な不変条件（空の `Guid` を拒否するなど）は、自前の例外を作らず `ArgumentException` の
+ような BCL の例外で足りることもある。
+→ [samples/CSStack.TADA.Sample/Domain/UserExceptions.cs](../samples/CSStack.TADA.Sample/Domain/UserExceptions.cs)
+
+### 静かに変わるもの
+
+**この 4 つに関しては無い。** いずれも「型が削除された」「既定実装の無いメンバーが増えた」
+という直接的な変更なので、実際に使っていればコンパイルエラーとして必ず表面化する。
+**逆にいえば、これらの型を一つも使っていないプロジェクトはこの節の影響を受けない。**
+
+### 移行後の確認
+
+- [ ] `IValueObject` / `IEntity<TIdentifier>` を直接実装している型、および
+      `EntityBase<TSelf, TIdentifier>` を継承しているエンティティすべてに `Validate()` を実装した
+- [ ] `ILengthDefinedSingleValueObject` を実装・制約に使っていた箇所を素の static メンバーに直した
+- [ ] `IDomainService<TReq>` 系を継承していたドメインサービスの口を、
+      自分で宣言した `ExecuteAsync` に直した
+- [ ] TADA 提供の例外クラスを `throw` / `catch` していた箇所を自前の例外に置き換えた
+
+---
+
 ## v1.x → v2.0.x
 
 v2.0.0 / v2.0.1 / v2.0.2 は同日リリースで、PATCH 番号だが**内容は MAJOR 相当**。
@@ -328,6 +489,11 @@ var userName = UserName.Create(input);   // 不正なら ValueObjectInvalidExcep
 **`Validate` メンバーはライブラリのどこにも存在しない。** 外から呼べる検証があると
 「未検証の値オブジェクトが存在しうる」ことになってしまうため。
 検証は `Create` の中に書き、永続化からの復元である `Reconstruct` では検証しない。
+
+> **この方針は v3.0.0 で見直されました。** あるインスタンスが `Create` を通ったかどうかを
+> 外部から検証する術が無いという不便が実用上多く、`Validate()` は
+> [上のセクション](#v300-内の追加変更-validate-の復活と削除された型)で復活しています。
+> 構築時の検証が `Create` の仕事であることは変わりません。
 
 → [domain-model.md](domain-model.md#検証は-create-の中に書く)
 

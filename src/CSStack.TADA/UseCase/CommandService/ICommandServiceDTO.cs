@@ -18,8 +18,8 @@
 	/// A command service DTO stands on the boundary of the application, so it holds the arguments the
 	/// caller supplied and the operation info to record with the write — not entities, and not a
 	/// transaction session: the command service starts the transaction itself. Converting the arguments
-	/// into value objects is the command service's job, and <see cref="ValueObjectInvalidException"/> from
-	/// that conversion is how invalid input is reported.
+	/// into value objects is the command service's job, and an exception from that conversion — thrown by
+	/// <c>Create</c> — is how invalid input is reported.
 	/// </para>
 	/// </remarks>
 	public interface ICommandServiceDTO;

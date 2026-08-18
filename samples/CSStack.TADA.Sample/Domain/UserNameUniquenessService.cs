@@ -33,12 +33,11 @@
     /// </typeparam>
     /// <remarks>
     /// <para>
-    /// <b>ドメインサービスにも専用の口を立て、リクエストをその中にネストする。</b>
-    /// <see cref="IDomainService{TReq}"/> は DTO の型で一意に定まるので、
-    /// 注入するだけなら <c>IDomainService&lt;EnsureUserNameIsUniqueReq&lt;TUserSession&gt;&gt;</c> でも動く。
-    /// ただしそれだと「このドメインサービスに何を渡すのか」を名前空間に平らに並んだ DTO から
-    /// 探すことになり、口と DTO の対応がコンパイラにも読み手にも保証されない。
-    /// <c>IUserNameUniquenessService&lt;TUserSession&gt;.Req</c> と口の中に置けば、
+    /// <b>ドメインサービスの形は TADA が型で強制しない。</b> 集約サービスやユースケースと違って
+    /// ドメインサービスは扱う対象・引数・戻り値がプロジェクトごとに柔軟で、共通の親インターフェースを
+    /// 立てても「メソッド名と Req/Res の形を強制するだけ」の効果しかなかったため。
+    /// それでも「専用の口を立て、リクエストをその口の中にネストする」という規約自体は他の 3 種のサービスと
+    /// 変わらない。<c>IUserNameUniquenessService&lt;TUserSession&gt;.Req</c> と口の中に置けば、
     /// 口から必ず辿れて、対応も 1 対 1 に固定される。
     /// </para>
     /// <para>
@@ -47,7 +46,6 @@
     /// </para>
     /// </remarks>
     public interface IUserNameUniquenessService<TUserSession>
-        : IDomainService<IUserNameUniquenessService<TUserSession>.Req>
         where TUserSession : IDisposable
     {
         /// <summary>
@@ -55,12 +53,18 @@
         /// </summary>
         /// <remarks>
         /// <b>ドメインサービスの DTO はセッションを載せる。</b>
-        /// <see cref="IDomainService{TReq}.ExecuteAsync"/> にセッション引数が無いため、
-        /// 実行中のトランザクションを伝える経路がこれしかない。
-        /// コマンドサービスやクエリサービスの DTO とは違い、エンティティや値オブジェクトを持ってよい。
-        /// セッションを載せるとはいえ具体型は名指しせず、口の型引数をそのまま使う点は同じ。
+        /// <see cref="ExecuteAsync"/> にセッション引数が無いため、実行中のトランザクションを伝える経路が
+        /// これしかない。コマンドサービスやクエリサービスの DTO とは違い、エンティティや値オブジェクトを
+        /// 持ってよい。セッションを載せるとはいえ具体型は名指しせず、口の型引数をそのまま使う点は同じ。
         /// </remarks>
-        sealed record Req(TUserSession Session, UserName Name, UserId ExceptUserId) : IDomainServiceDTO;
+        sealed record Req(TUserSession Session, UserName Name, UserId ExceptUserId);
+
+        /// <summary>
+        /// 実行する。
+        /// </summary>
+        /// <param name="req">リクエスト</param>
+        /// <param name="cancellationToken">キャンセルトークン</param>
+        ValueTask ExecuteAsync(Req req, CancellationToken cancellationToken = default);
     }
 
     /// <summary>
@@ -91,9 +95,9 @@
         }
 
         /// <summary>
-        /// 名前が使われていれば <see cref="ObjectAlreadyExistException"/> を投げる。
+        /// 名前が使われていれば <see cref="UserAlreadyExistsException"/> を投げる。
         /// </summary>
-        /// <exception cref="ObjectAlreadyExistException">その名前は既に他のユーザーが使っている。</exception>
+        /// <exception cref="UserAlreadyExistsException">その名前は既に他のユーザーが使っている。</exception>
         public async ValueTask ExecuteAsync(
             IUserNameUniquenessService<TUserSession>.Req req,
             CancellationToken cancellationToken = default)
@@ -106,7 +110,7 @@
 
             if (isUsed)
             {
-                throw new ObjectAlreadyExistException(typeof(User), req.Name.Value);
+                throw new UserAlreadyExistsException($"ユーザー名 '{req.Name}' は既に他のユーザーが使用しています。");
             }
         }
     }

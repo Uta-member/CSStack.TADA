@@ -26,8 +26,8 @@
 		/// Delete the entity.
 		/// </summary>
 		/// <remarks>
-		/// Deleting an entity that is no longer there is not a failure of this method, so it must not throw
-		/// <see cref="ObjectNotFoundException"/>. Whether the entity has to exist is decided by the caller,
+		/// Deleting an entity that is no longer there is not a failure of this method, so it must not throw.
+		/// Whether the entity has to exist is decided by the caller,
 		/// which normally reads it through
 		/// <see cref="IRepository{TEntity, TEntityIdentifier, TOperateInfo, TSession}.FindByIdentifierAsync"/>
 		/// first — that is also why this method takes the entity rather than its identifier.

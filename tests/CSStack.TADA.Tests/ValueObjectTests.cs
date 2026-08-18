@@ -2,8 +2,8 @@
 {
     /// <summary>
     /// The value-object contract, exercised through the sample <see cref="UserId"/> / <see cref="UserName"/>:
-    /// validation lives in <c>Create</c>, <c>Reconstruct</c> skips it, length bounds are reachable through the
-    /// <see cref="ILengthDefinedSingleValueObject"/> constraint, and equality is by value (record).
+    /// validation lives in <c>Create</c>, <c>Reconstruct</c> skips it, length bounds are reachable as plain
+    /// static members, <c>Validate</c> re-checks invariants on demand, and equality is by value (record).
     /// </summary>
     public class ValueObjectTests
     {
@@ -16,17 +16,17 @@
         }
 
         [Fact]
-        public void UserName_Create_はnullをValueObjectNullExceptionで弾く()
+        public void UserName_Create_はnullをUserNameInvalidExceptionで弾く()
         {
-            Assert.Throws<ValueObjectNullException>(() => UserName.Create(null!));
+            Assert.Throws<UserNameInvalidException>(() => UserName.Create(null!));
         }
 
         [Fact]
-        public void UserName_Create_は長さ上限超過をValueObjectLengthExceptionで弾く()
+        public void UserName_Create_は長さ上限超過をUserNameLengthExceptionで弾く()
         {
             var tooLong = new string('a', UserName.MaxLength + 1);
 
-            var exception = Assert.Throws<ValueObjectLengthException>(() => UserName.Create(tooLong));
+            var exception = Assert.Throws<UserNameLengthException>(() => UserName.Create(tooLong));
 
             Assert.Equal(UserName.MinLength, exception.MinLength);
             Assert.Equal(UserName.MaxLength, exception.MaxLength);
@@ -37,7 +37,7 @@
         public void UserName_Create_は空文字を長さ下限違反で弾く()
         {
             // MinLength is 1, so the empty string is a length violation, not a null violation.
-            var exception = Assert.Throws<ValueObjectLengthException>(() => UserName.Create(string.Empty));
+            var exception = Assert.Throws<UserNameLengthException>(() => UserName.Create(string.Empty));
 
             Assert.Equal(0, exception.CurrentLength);
         }
@@ -53,9 +53,9 @@
         }
 
         [Fact]
-        public void UserId_Create_は空GUIDをValueObjectInvalidExceptionで弾く()
+        public void UserId_Create_は空GUIDをUserIdInvalidExceptionで弾く()
         {
-            Assert.Throws<ValueObjectInvalidException>(() => UserId.Create(Guid.Empty));
+            Assert.Throws<UserIdInvalidException>(() => UserId.Create(Guid.Empty));
         }
 
         // --- Reconstruct skips validation --------------------------------------------------
@@ -77,14 +77,40 @@
             Assert.Equal(Guid.Empty, UserId.Reconstruct(Guid.Empty).Value);
         }
 
-        // --- length bounds reachable via the constraint ------------------------------------
+        // --- length bounds reachable as plain static members -------------------------------
 
         [Fact]
-        public void 長さ境界は値を構築せずに制約経由で読める()
+        public void 長さ境界は値を構築せずに静的メンバーとして読める()
         {
             // A presentation layer can render maxlength from the same numbers the domain validates against.
-            Assert.Equal(1, MinLengthOf<UserName>());
-            Assert.Equal(16, MaxLengthOf<UserName>());
+            Assert.Equal(1, UserName.MinLength);
+            Assert.Equal(16, UserName.MaxLength);
+        }
+
+        // --- Validate re-checks on demand ---------------------------------------------------
+
+        [Fact]
+        public void Validateは不変条件を満たしていれば何も投げない()
+        {
+            UserName.Create("taro").Validate();
+            UserId.New().Validate();
+        }
+
+        [Fact]
+        public void ValidateはReconstructで復元した長さ違反を検出する()
+        {
+            var tooLong = new string('a', UserName.MaxLength + 1);
+            var name = UserName.Reconstruct(tooLong);
+
+            Assert.Throws<UserNameLengthException>(name.Validate);
+        }
+
+        [Fact]
+        public void ValidateはReconstructで復元した空GUIDを検出する()
+        {
+            var id = UserId.Reconstruct(Guid.Empty);
+
+            Assert.Throws<UserIdInvalidException>(id.Validate);
         }
 
         // --- record value equality ---------------------------------------------------------
@@ -110,16 +136,6 @@
         public void 等価な値オブジェクトは同じハッシュコードを返す()
         {
             Assert.Equal(UserName.Create("taro").GetHashCode(), UserName.Create("taro").GetHashCode());
-        }
-
-        private static int MaxLengthOf<T>() where T : ILengthDefinedSingleValueObject
-        {
-            return T.MaxLength;
-        }
-
-        private static int MinLengthOf<T>() where T : ILengthDefinedSingleValueObject
-        {
-            return T.MinLength;
         }
     }
 }

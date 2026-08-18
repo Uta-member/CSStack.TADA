@@ -137,7 +137,7 @@ TADA はこれを「隠すべきコスト」ではなく「払う価値のある
                             │  session を引数で渡す
 ┌───────────────────────────▼─────────────────────────────────┐
 │ Domain              Entity / ValueObject                     │
-│                     IAggregateService / IDomainService       │
+│                     IAggregateService / ドメインサービスの口 │
 │                     IRepository（インターフェースのみ）       │
 │                     トランザクションを開始しない              │
 └───────────────────────────┬─────────────────────────────────┘
@@ -164,12 +164,17 @@ DI 登録で両者を結びつける → [ドメイン層に具体的なセッ�
 |---|---|---|
 | `Domain/Entity` `Domain/ValueObject` | `EntityBase` `IValueObject` など | Domain |
 | `Domain/Repository` | `IRepository` `IRepositoryDeletable` | 宣言は Domain / 実装は Infrastructure |
-| `Domain/AggregateService` `Domain/DomainService` | 集約サービス・ドメインサービス | Domain |
+| `Domain/AggregateService` | 集約サービス（`IAggregateService` / `AggregateServiceBase`） | Domain |
 | `UseCase/CommandService` `UseCase/QueryService` | ユースケースの入口 | UseCase（クエリの実装は Infrastructure 寄り） |
 | `UseCase/TransactionService` | `ITransactionManager` `ITransactionService` | 宣言は UseCase / 実装は Infrastructure |
 
 > namespace はフォルダに関係なく `CSStack.TADA` のフラット。
 > 利用者が `using CSStack.TADA;` 1 行で済むようにするための意図的な設計。
+
+> **ドメインサービス用の共通インターフェースはライブラリに無い。** かつて `Domain/DomainService`
+> にあった `IDomainService<TReq>` 系は削除されたので、ドメインサービスの口は利用側が自分で
+> `ExecuteAsync` を 1 つ宣言する。「専用の口を立て、リクエストをその中にネストする」という
+> 規約自体は他の 3 種のサービスと変わらない → [use-case.md](use-case.md#3-種のサービスの使い分け)。
 
 ---
 
@@ -251,7 +256,7 @@ IAggregateService<TEntity, TEntityIdentifier, TRepository, TOperateInfo, TSessio
 ### 4. 不在は `Optional<T>`
 
 `FindByIdentifierAsync` は見つからなければ `Optional<T>.Empty` を返し、
-`ObjectNotFoundException` は投げない。「見つからない」が異常かどうかは操作次第
+見つからないことをそのまま例外にはしない。「見つからない」が異常かどうかは操作次第
 （削除済みのものをもう一度削除するのは問題ないが、無い口座から引き落とすのは問題）で、
 **それを知っているのは呼び出し側だけ**だから。
 
@@ -436,9 +441,10 @@ await commandService.ExecuteAsync(new ICreateUserCommandService.Req("alice", ope
 
 **ドメインサービスとクエリサービスにも口を立てる。** これらはセッション型を呼び出し側に
 見せないので理由は上の 3 点ではなく、**リクエスト / レスポンスの置き場所**にある。
-`IDomainService<TReq>` はリクエスト DTO の型で一意に定まるので注入するだけなら口は要らないが、
+ドメインサービスには TADA 由来の共通インターフェースが無いので、注入するだけなら
+口を立てずに実装クラスをそのまま注入しても動く。それでも口を立てるのは、
 DTO を口の中に `Req` / `Res` としてネストしておくと、口から必ず辿れて対応が 1 対 1 に固定される
-（→ [use-case.md](use-case.md#リクエストとレスポンスは口の中にネストする)）。
+からである（→ [use-case.md](use-case.md#リクエストとレスポンスは口の中にネストする)）。
 
 ### 割り切って具体型を書く場合
 

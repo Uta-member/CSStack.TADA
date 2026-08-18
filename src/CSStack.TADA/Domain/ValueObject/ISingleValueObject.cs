@@ -27,12 +27,13 @@
 	/// <typeparam name="TSelf">Value object type. Pass the type that implements this interface.</typeparam>
 	/// <remarks>
 	/// <para>
-	/// <b>Validation lives in <see cref="Create(TValue)"/>, and nowhere else.</b> There is no
-	/// <c>Validate</c> member to implement — one existed and was removed, because being callable from the
-	/// outside implied a value object could exist in an unvalidated state, which is exactly what a value
-	/// object is supposed to rule out. Keep the constructor private so that
-	/// <see cref="Create(TValue)"/> and <see cref="Reconstruct(TValue)"/> are the only ways in; then an
-	/// instance that exists is an instance that passed.
+	/// <b>Validation on construction lives in <see cref="Create(TValue)"/>, and nowhere else.</b> Keep the
+	/// constructor private so that <see cref="Create(TValue)"/> and <see cref="Reconstruct(TValue)"/> are
+	/// the only ways in; then an instance built through <see cref="Create(TValue)"/> is already known to be
+	/// valid, and <see cref="IValueObject.Validate"/> is never called from inside <see cref="Create(TValue)"/>
+	/// itself — it would just repeat the same check. <see cref="IValueObject.Validate"/> is instead the
+	/// on-demand check for what <see cref="Create(TValue)"/> does not cover: an instance rebuilt by
+	/// <see cref="Reconstruct(TValue)"/> from data written under looser rules.
 	/// </para>
 	/// <para>
 	/// Implement value objects as a <c>record</c> so that equality is by value. See
@@ -50,15 +51,12 @@
 		/// Create a new instance from untrusted input, applying the invariants of this value object.
 		/// </summary>
 		/// <remarks>
-		/// Reject invalid input by throwing <see cref="ValueObjectInvalidException"/> or a type derived
-		/// from it — <see cref="ValueObjectNullException"/> when the value is missing,
-		/// <see cref="ValueObjectLengthException"/> when it breaks the bounds declared by
-		/// <see cref="ILengthDefinedSingleValueObject"/> — rather than returning a sentinel. Do not return
-		/// an instance that failed validation.
+		/// Reject invalid input by throwing — this library does not prescribe which exception type, so
+		/// throw whatever fits the caller — rather than returning a sentinel. Do not return an instance that
+		/// failed validation.
 		/// </remarks>
 		/// <param name="value">Value</param>
 		/// <returns>A validated instance</returns>
-		/// <exception cref="ValueObjectInvalidException"><paramref name="value"/> breaks an invariant.</exception>
 		static abstract TSelf Create(TValue value);
 
 		/// <summary>

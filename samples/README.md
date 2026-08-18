@@ -21,12 +21,13 @@ README や `docs/` に貼ったコードは、API が変わっても誰も気づ
 |---|---|
 | [Program.cs](CSStack.TADA.Sample/Program.cs) | **DI 登録**（`TransactionManager` は Scoped、`ITransactionService<TSession>` の登録、**セッション型を確定させる唯一の場所**）とシナリオ 7 本 |
 | [Domain/UserId.cs](CSStack.TADA.Sample/Domain/UserId.cs) | 値オブジェクト。検証は `Create`、`Reconstruct` は検証しない |
-| [Domain/UserName.cs](CSStack.TADA.Sample/Domain/UserName.cs) | `ILengthDefinedSingleValueObject` で長さの制約を公開する |
-| [Domain/User.cs](CSStack.TADA.Sample/Domain/User.cs) | `EntityBase` による識別子の等価性。1 エンティティで完結するルールの置き場所 |
+| [Domain/UserName.cs](CSStack.TADA.Sample/Domain/UserName.cs) | 素の static メンバー（`MaxLength` / `MinLength`）で長さの制約を公開する。`Create` と `Validate` が同じ `CheckInvariants` ヘルパーを共有する |
+| [Domain/User.cs](CSStack.TADA.Sample/Domain/User.cs) | `EntityBase` による識別子の等価性。1 エンティティで完結するルールの置き場所。`Validate()` は値オブジェクトへ委譲する |
+| [Domain/UserExceptions.cs](CSStack.TADA.Sample/Domain/UserExceptions.cs) | TADA はもう例外クラスを提供しない。ドメインの語彙で自前に定義する例のひとつ（単純な不変条件は `ArgumentException` で足りる例も） |
 | [Domain/IUserRepository.cs](CSStack.TADA.Sample/Domain/IUserRepository.cs) | 検索系メソッドを足さない。**セッション型は `TSession` で開き、`AppSession` と書かない** |
 | [Domain/IUserAggregateService.cs](CSStack.TADA.Sample/Domain/IUserAggregateService.cs) | **`IAggregateService` を継承した集約サービスの口。**上の層はこれを注入する。**並ぶのはドメインの操作だけで `SaveAsync` は無い** |
-| [Domain/UserAggregateService.cs](CSStack.TADA.Sample/Domain/UserAggregateService.cs) | 口の実装。`Optional.Empty` を `ObjectNotFoundException` に変えるのはこの層。`RenameAsync` が「取得 → 変更 → 保存」を 1 つに閉じている |
-| [Domain/UserNameUniquenessService.cs](CSStack.TADA.Sample/Domain/UserNameUniquenessService.cs) | 集約をまたぐルール。**口の中にネストした `Req`** にセッションを載せる（型引数は `TUserSession`） |
+| [Domain/UserAggregateService.cs](CSStack.TADA.Sample/Domain/UserAggregateService.cs) | 口の実装。`Optional.Empty` を `UserNotFoundException` に変えるのはこの層。`RenameAsync` が「取得 → 変更 → 保存」を 1 つに閉じている |
+| [Domain/UserNameUniquenessService.cs](CSStack.TADA.Sample/Domain/UserNameUniquenessService.cs) | 集約をまたぐルール。TADA 由来の共通インターフェースは継承せず `ExecuteAsync` を自分で宣言する。**口の中にネストした `Req`** にセッションを載せる（型引数は `TUserSession`） |
 | [Infrastructure/AppTransactionService.cs](CSStack.TADA.Sample/Infrastructure/AppTransactionService.cs) | **セッションを Dispose しない**（所有権はマネージャー側） |
 | [Infrastructure/InMemoryUserRepository.cs](CSStack.TADA.Sample/Infrastructure/InMemoryUserRepository.cs) | 不在は `Optional<User>.Empty`。`return null;` と書かない。**具体型 `AppSession` を名指しするのはここだけ** |
 | [UseCase/CreateUserCommandService.cs](CSStack.TADA.Sample/UseCase/CreateUserCommandService.cs) | **トランザクションの境界**。`ExecuteTransactionAsync` で包む。型引数は `TSession` ではなく `TUserSession`。**セッション型引数を持たない口 `ICreateUserCommandService` を立て、`Req` / `Res` をその中にネストする** |
