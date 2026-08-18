@@ -71,11 +71,11 @@ public sealed class AppSession : IDisposable
 `record` で実装する。**検証は `Create` の中だけに書き、`Reconstruct` では検証しない。**
 
 ```csharp
-public sealed record UserName
-    : ISingleValueObject<string, UserName>, ILengthDefinedSingleValueObject
+public sealed record UserName : ISingleValueObject<string, UserName>
 {
     private UserName(string value) => Value = value;   // ★ private
 
+    // interface を介さない素の static メンバー。長さの上下限を公開するだけ
     public static int MaxLength => 16;
     public static int MinLength => 1;
 
@@ -84,36 +84,52 @@ public sealed record UserName
     // 外部からの入力用。検証はここに書く
     public static UserName Create(string value)
     {
-        if (value is null)
-        {
-            throw new ValueObjectNullException($"{nameof(UserName)} に null は指定できません。");
-        }
-        if (value.Length < MinLength || value.Length > MaxLength)
-        {
-            // 引数が 3 つとも int。順番を間違えてもコンパイルは通るので名前付きで渡す
-            throw new ValueObjectLengthException(
-                minLength: MinLength, maxLength: MaxLength, currentLength: value.Length);
-        }
-
+        CheckInvariants(value);
         return new UserName(value);
     }
 
     // 永続化された値の復元用。検証しない
     public static UserName Reconstruct(string value) => new(value);
+
+    // Create と Reconstruct 後の再検証の両方から呼べるように、検証はヘルパーへ集約する
+    public void Validate() => CheckInvariants(Value);
+
+    private static void CheckInvariants(string value)
+    {
+        if (value is null)
+        {
+            throw new UserNameInvalidException($"{nameof(UserName)} に null は指定できません。");
+        }
+        if (value.Length < MinLength || value.Length > MaxLength)
+        {
+            // 引数が 3 つとも int。順番を間違えてもコンパイルは通るので名前付きで渡す
+            throw new UserNameLengthException(
+                minLength: MinLength, maxLength: MaxLength, currentLength: value.Length);
+        }
+    }
 }
 ```
+
+`UserNameInvalidException` / `UserNameLengthException` はこのプロジェクト自身が定義する例外。
+TADA はもう値オブジェクト用の例外クラスを提供しないので、何を投げるかは利用側が決める
+（→ [domain-model.md](domain-model.md#検証は-create-の中に書く)）。
 
 押さえるところ:
 
 - **コンストラクタは private。** `Create` / `Reconstruct` だけを入口にすると
   「存在しているインスタンス = 検証を通ったインスタンス」になる
-- **`Validate` メンバーは存在しない。** 外から呼べる検証があると、
-  未検証の値オブジェクトが存在しうることになってしまうため、v2.0.0 で削除された
+- **`Validate()` は `Create` の代わりではない。** `IValueObject.Validate()` は必須メンバーだが、
+  `Create` を通った時点で検証済みなので `Create` の中からは呼ばない。用意した理由は、
+  あるインスタンスが `Create` を通ったかどうかを外部から検証する術が無いため。
+  `Reconstruct` の後に使うのはその一例に過ぎず、`Validate()` 自体は何にも依存しない、
+  今の値が現行の不変条件を満たしているかを確認するだけのプリミティブ
+- **`Create` と `Validate` の検証は `CheckInvariants` のような `private` ヘルパーに集約する。**
+  同じチェックを 2 か所に書かない
 - **`Reconstruct` が検証しないのは意図的。** ルールを厳しくした後でも、
   古いルールで保存されたデータを読み戻せるようにするため
-- `ILengthDefinedSingleValueObject` は長さを**公開する**だけで強制はしない。
-  強制するのは `Create`。画面側が `UserName.MaxLength` をそのまま使えるので、
-  同じ数字を 2 箇所に書かずに済む
+- 長さの上下限は `MaxLength` / `MinLength` を**素の static メンバーとして公開する**だけで強制はしない
+  （`ILengthDefinedSingleValueObject` は v3.0.0 で削除された）。強制するのは `Create`。
+  画面側が `UserName.MaxLength` をそのまま使えるので、同じ数字を 2 箇所に書かずに済む
 
 → [domain-model.md](domain-model.md#値オブジェクト)
 
@@ -138,11 +154,21 @@ public sealed class User : EntityBase<User, UserId>
 
     // 1 エンティティで完結するルールはここに置く
     public void Rename(UserName name) => Name = name;
+
+    // IEntity<TIdentifier>.Validate() は必須メンバー。持っている値オブジェクトへ委譲すればよいことが多い
+    public override void Validate()
+    {
+        Identifier.Validate();
+        Name.Validate();
+    }
 }
 ```
 
 等価性は `EntityBase` が実装済みで、**「実行時型が同じ、かつ `Identifier` が等しい」**。
 他のプロパティは見ないので、名前を変えても同じユーザーのまま。
+
+`EntityBase<TSelf, TIdentifier>` は `public abstract void Validate();` を宣言しているので、
+派生クラスは必ず実装する。構築時の検証は `Create` の仕事のままで、`Validate()` はそれを置き換えない。
 
 → [domain-model.md](domain-model.md#エンティティ)
 
@@ -203,7 +229,7 @@ public sealed class InMemoryUserRepository : IUserRepository<AppSession>
 1. **`return null;` と書かない。** 暗黙変換で `Some(null)`（`HasValue = true`）になり、
    呼び出し側の `TryGetValue` が true を返したうえで `NullReferenceException` になる。
    不在は `Optional<T>.Empty`
-2. **`ObjectNotFoundException` を投げない。** 不在は正常な結果。
+2. **見つからないことを例外にしない。** 不在は正常な結果。
    異常かどうかを決めるのは集約サービスかユースケース
 3. **セッションをフィールドに持たない。** 引数で受け取るだけ。
    begin / commit / rollback / dispose のどれも行わない
@@ -249,7 +275,7 @@ public sealed class UserAggregateService<TSession>
         var existing = await GetEntityByIdentifierAsync(session, user.Identifier, cancellationToken);
         if (existing.HasValue)
         {
-            throw new ObjectAlreadyExistException(typeof(User), user.Identifier);
+            throw new UserAlreadyExistsException($"ユーザー '{user.Identifier}' は既に存在します。");
         }
 
         await Repository.SaveAsync(session, user, operateInfo, cancellationToken);
@@ -274,13 +300,18 @@ public sealed class UserAggregateService<TSession>
         var found = await GetEntityByIdentifierAsync(session, identifier, cancellationToken);
         if (!found.TryGetValue(out var user))
         {
-            throw new ObjectNotFoundException(typeof(User), identifier);
+            throw new UserNotFoundException(identifier.Value);
         }
 
         return user;
     }
 }
 ```
+
+`UserAlreadyExistsException` / `UserNotFoundException` はこのプロジェクトが自分で定義する例外。
+TADA はもう `ObjectAlreadyExistException` / `ObjectNotFoundException` のような
+汎用の例外クラスを提供しないので、ドメインの語彙で自前に定義する
+（→ [domain-model.md](domain-model.md#例外を投げる層)）。
 
 **具象クラスをユースケースに注入しないこと。** 基底クラスは実装の詳細で、
 上の層に見せる契約はインターフェースのほう。具象を注入すると、
@@ -454,7 +485,7 @@ public sealed class CreateUserCommandService<TUserSession> : ICreateUserCommandS
             {
                 var session = sessions.GetSession<TUserSession>();
 
-                // 外部入力を値オブジェクトへ。不正なら ValueObjectInvalidException 系が飛ぶ
+                // 外部入力を値オブジェクトへ。不正なら Create が例外を投げる（型はプロジェクト側で定義する）
                 var userName = UserName.Create(req.UserName);
 
                 var user = User.Create(userId, userName);

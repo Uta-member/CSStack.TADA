@@ -35,7 +35,7 @@ namespace CSStack.TADA.Sample
             {
                 await CreateUserAsync(provider, "alice", operateInfo);
             }
-            catch (ObjectAlreadyExistException exception)
+            catch (UserAlreadyExistsException exception)
             {
                 Console.WriteLine($"想定どおり失敗: {exception.Message}");
             }
@@ -49,7 +49,7 @@ namespace CSStack.TADA.Sample
             {
                 await CreateUserAsync(provider, new string('x', 100), operateInfo);
             }
-            catch (ValueObjectLengthException exception)
+            catch (UserNameLengthException exception)
             {
                 Console.WriteLine(
                     $"想定どおり失敗: 許容 {exception.MinLength}〜{exception.MaxLength} 文字, "
@@ -62,9 +62,9 @@ namespace CSStack.TADA.Sample
             {
                 await RenameUserAsync(provider, Guid.NewGuid(), "nobody", operateInfo);
             }
-            catch (ObjectNotFoundException exception)
+            catch (UserNotFoundException exception)
             {
-                Console.WriteLine($"想定どおり失敗: {exception.ObjectType?.Name} / {exception.Identifier}");
+                Console.WriteLine($"想定どおり失敗: User / {exception.UserId}");
             }
 
             // 6. クエリサービスで絞り込む

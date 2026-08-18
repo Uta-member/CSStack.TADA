@@ -1,7 +1,8 @@
 ﻿namespace CSStack.TADA
 {
 	/// <summary>
-	/// Interface for value objects. A marker: it declares intent and carries no members.
+	/// Interface for value objects. Carries a single member, <see cref="Validate"/>; otherwise it is a
+	/// marker that declares intent.
 	/// </summary>
 	/// <remarks>
 	/// <para>
@@ -26,16 +27,39 @@
 	///
 	///     public string Value { get; }
 	///
-	///     public static UserName Create(string value) =&gt; new(Validate(value));
+	///     public static UserName Create(string value) =&gt; new(CheckInvariants(value));
 	///
 	///     public static UserName Reconstruct(string value) =&gt; new(value);
 	///
-	///     private static string Validate(string value) =&gt; /* throw ValueObjectInvalidException when invalid */ value;
+	///     public void Validate() =&gt; CheckInvariants(Value);
+	///
+	///     private static string CheckInvariants(string value) =&gt; /* throw when invalid */ value;
 	/// }
 	/// </code>
 	/// </example>
 	/// </remarks>
 	public interface IValueObject
 	{
+		/// <summary>
+		/// Check the invariants of this value object and throw when one is broken.
+		/// </summary>
+		/// <remarks>
+		/// <para>
+		/// <b>This does not replace validation in <c>Create</c>.</b> An instance built through
+		/// <c>Create</c> already passed once, so nothing calls this automatically. It exists because there
+		/// is no way for a caller to verify from the outside whether a given instance actually went through
+		/// <c>Create</c>. It is not tied to any particular scenario such as <c>Reconstruct</c> — it is a
+		/// plain primitive that answers one question: does the value, as it stands right now, satisfy
+		/// today's invariants?
+		/// </para>
+		/// <para>
+		/// <b>Throw on failure; do not return a result.</b> This interface deliberately fixes the shape at
+		/// <see langword="void"/> so that every value object exposes the same member regardless of how many
+		/// call sites want a <c>bool</c> or a result type instead — those callers can wrap this in a
+		/// <c>try</c>/<c>catch</c> of their own. Nothing here can force the exception type: this library no
+		/// longer ships one for that purpose, so throw whatever fits the caller.
+		/// </para>
+		/// </remarks>
+		void Validate();
 	}
 }

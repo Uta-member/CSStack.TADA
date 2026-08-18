@@ -100,7 +100,7 @@ public async ValueTask<Optional<User>> FindByIdentifierAsync(
 ```
 
 **リポジトリで「見つからなかった」を表すのは常に `Optional<T>.Empty` です。**
-`null` を返さないこと、そして `ObjectNotFoundException` を投げないこと
+`null` を返さないこと、そして見つからないことをそのまま例外にしないこと
 （見つからないのは正常な結果であり、例外にするかどうかは呼び出し側が決めます）。
 
 ---

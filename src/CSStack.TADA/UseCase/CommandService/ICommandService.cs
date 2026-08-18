@@ -40,8 +40,8 @@
 	/// <c>IChangeUserNameCommandService : ICommandService&lt;IChangeUserNameCommandService.Req&gt;</c> in
 	/// front of it, callers resolve that and the type argument appears in the DI registration alone;
 	/// tests substitute the interface. See <see cref="ICommandServiceDTO"/> for why the DTOs belong
-	/// inside it. Take the layers below as interfaces too — the aggregate service and the domain service
-	/// each through their own.
+	/// inside it. Take the layers below as interfaces too — the aggregate service through its own, and
+	/// any domain-spanning logic through whatever interface it declares for itself.
 	/// </para>
 	/// <example>
 	/// <code>

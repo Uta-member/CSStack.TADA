@@ -103,10 +103,11 @@ public sealed class AppSession : IDisposable
 ### 2. Value object — validate in `Create`, never in `Reconstruct`
 
 ```csharp
-public sealed record UserName : ISingleValueObject<string, UserName>, ILengthDefinedSingleValueObject
+public sealed record UserName : ISingleValueObject<string, UserName>
 {
     private UserName(string value) => Value = value;   // private: Create/Reconstruct are the only ways in
 
+    // Plain static members — no interface to implement. Publishing them costs nothing extra.
     public static int MaxLength => 16;
     public static int MinLength => 1;
 
@@ -114,22 +115,33 @@ public sealed record UserName : ISingleValueObject<string, UserName>, ILengthDef
 
     public static UserName Create(string value)        // untrusted input: validate here
     {
-        if (value is null)
-        {
-            throw new ValueObjectNullException($"{nameof(UserName)} must not be null.");
-        }
-        if (value.Length < MinLength || value.Length > MaxLength)
-        {
-            throw new ValueObjectLengthException(
-                minLength: MinLength, maxLength: MaxLength, currentLength: value.Length);
-        }
-
+        CheckInvariants(value);
         return new UserName(value);
     }
 
     public static UserName Reconstruct(string value) => new(value);   // from storage: no validation
+
+    // IValueObject.Validate() is required, but it is not a substitute for Create — it is a separate
+    // path for re-checking invariants later, e.g. after Reconstruct restores data written under older rules.
+    public void Validate() => CheckInvariants(Value);
+
+    private static void CheckInvariants(string value)
+    {
+        if (value is null)
+        {
+            throw new UserNameInvalidException($"{nameof(UserName)} must not be null.");
+        }
+        if (value.Length < MinLength || value.Length > MaxLength)
+        {
+            throw new UserNameLengthException(
+                minLength: MinLength, maxLength: MaxLength, currentLength: value.Length);
+        }
+    }
 }
 ```
+
+`UserNameInvalidException` / `UserNameLengthException` are exceptions this project defines itself —
+TADA no longer ships value-object exception types, so the thrown type is the caller's choice.
 
 ### 3. Entity — identity equality comes from `EntityBase`
 
@@ -147,6 +159,9 @@ public sealed class User : EntityBase<User, Guid>
     public static User Reconstruct(Guid identifier, UserName name) => new(identifier, name);
 
     public void Rename(UserName name) => Name = name;
+
+    // IEntity<TIdentifier>.Validate() is required; delegating to the value objects is often enough.
+    public override void Validate() => Name.Validate();
 }
 ```
 
@@ -180,7 +195,7 @@ public sealed class UserRepository : IUserRepository<AppSession>
                 : Optional<User>.Some(User.Reconstruct(row.Id, UserName.Reconstruct(row.Name))));
     }
 
-    // Upsert. Never throws ObjectAlreadyExistException / ObjectNotFoundException.
+    // Upsert. Never throws for "already exists" or "not found" — those are not the repository's call.
     public ValueTask SaveAsync(
         AppSession session, User entity, OperateInfo operateInfo,
         CancellationToken cancellationToken = default)
@@ -271,7 +286,8 @@ Nothing below this layer starts a transaction. Throwing inside the body rolls ba
 > `IAggregateService<...>` and implement it with an `AggregateServiceBase<...>` subclass, so a use
 > case test can substitute the interface instead of building the concrete service and its repository.
 > Domain and query services get an interface too — not to hide a session type, but because deriving
-> from `ICommandService` / `IQueryService` / `IDomainService` already fixes one request and one
+> from `ICommandService` / `IQueryService` (or, for a domain service, declaring `ExecuteAsync` by
+> hand — TADA ships no common interface for domain services) already fixes one request and one
 > response per service, so that is where those types belong.
 >
 > **Do not put a general `SaveAsync` on an aggregate service.** Its interface is in practice the
@@ -333,7 +349,7 @@ UseCase         ICommandService  ← transaction boundary (ITransactionManager l
                 IQueryService                             — reads the store directly
       ↓  session passed as an argument
 Domain          Entity / ValueObject / IRepository        — never starts a transaction
-                IAggregateService / IDomainService
+                IAggregateService / domain services (project-declared)
       ↑  implemented by
 Infrastructure  repository impls, ITransactionService<TSession>, the session type
 ```
@@ -346,23 +362,28 @@ the two together in the DI registration.
 
 ## Components
 
-All 35 public types. Details are behind the links.
+All 25 public types. Details are behind the links.
 
 **Entities** — [docs/domain-model.md](docs/domain-model.md)
 
 | Type | One line |
 |---|---|
-| `IEntity<TIdentifier>` | Entity contract: an `Identifier`, and nothing else |
-| `EntityBase<TSelf, TIdentifier>` | Base class; equality is same runtime type **and** equal identifier |
+| `IEntity<TIdentifier>` | Entity contract: an `Identifier` and a `Validate()` |
+| `EntityBase<TSelf, TIdentifier>` | Base class; equality is same runtime type **and** equal identifier; declares `Validate()` abstract |
 
 **Value objects** — [docs/domain-model.md](docs/domain-model.md)
 
 | Type | One line |
 |---|---|
-| `IValueObject` | Marker. Implement on a `record`, never a `class` |
+| `IValueObject` | One member, `Validate()`. Implement on a `record`, never a `class` |
 | `ISingleValueObject<TValue>` | Just `Value`; for generic constraints |
 | `ISingleValueObject<TValue, TSelf>` | Adds the `Create` (validates) / `Reconstruct` (does not) contract |
-| `ILengthDefinedSingleValueObject` | Publishes `MinLength` / `MaxLength`; does not enforce them |
+
+`Validate()` has no default implementation, so implementing types must supply it. It does not replace
+validation in `Create` — it is a separate, on-demand recheck, most useful after `Reconstruct` restores
+data written under older rules. A value object that wants to publish length bounds does so as plain
+`static int MaxLength` / `MinLength` members, no interface required (`ILengthDefinedSingleValueObject`
+was removed in v3.0.0 — it only ever published two numbers).
 
 **Repositories** — [docs/domain-model.md](docs/domain-model.md)
 
@@ -377,9 +398,12 @@ All 35 public types. Details are behind the links.
 |---|---|
 | `IAggregateService<TEntity, TEntityIdentifier, TRepository, TOperateInfo, TSession>` | The 5 type parameters state "one entity, one repository, one service" |
 | `AggregateServiceBase<...>` | Base class; implements the lookup, exposes `Repository` to subclasses |
-| `IDomainService<TReq>` | Rules spanning aggregates. Never starts a transaction |
-| `IDomainService<TReq, TRes>` | Same, with a response |
-| `IDomainServiceDTO` | DTO marker. **The only DTO that carries the session** |
+
+Domain services have no common TADA interface (`IDomainService<TReq>` / `IDomainService<TReq, TRes>` /
+`IDomainServiceDTO` were removed in v3.0.0 — the shape a domain service needs varies too much between
+projects for a shared parent to earn its keep). The convention survives: declare an interface, declare
+`ExecuteAsync` on it by hand, and nest the request as `Req`. See
+[samples/CSStack.TADA.Sample/Domain/UserNameUniquenessService.cs](samples/CSStack.TADA.Sample/Domain/UserNameUniquenessService.cs).
 
 **Use cases** — [docs/use-case.md](docs/use-case.md)
 
@@ -414,14 +438,16 @@ All 35 public types. Details are behind the links.
 | Type | One line |
 |---|---|
 | `TADAException` | Base of every exception below |
-| `ObjectNotFoundException` | A required object was missing. **Repositories never throw it** |
-| `ObjectAlreadyExistException` | An object existed where there had to be none. Repositories never throw it |
-| `DomainInvalidOperationException` | An operation the domain forbids |
-| `ValueObjectInvalidException` | A value object invariant was broken; thrown from `Create` |
-| `ValueObjectNullException` | The value was null |
-| `ValueObjectLengthException` | Length out of range; carries `MinLength` / `MaxLength` / `CurrentLength` |
 | `TransactionSessionNotFoundException` | A session was requested before it was begun |
 | `NestedTransactionException` | A transaction was started inside another one on the same manager |
+
+These are the only three exceptions the library still ships, and the only two it actually throws
+itself (`TADAException` is a base, not something thrown directly). Domain-facing exception types
+(missing object, duplicate object, invalid value object, forbidden operation) were removed in v3.0.0:
+half-hearted helpers were judged worse than each project defining exceptions in its own domain
+vocabulary. See
+[samples/CSStack.TADA.Sample/Domain/UserExceptions.cs](samples/CSStack.TADA.Sample/Domain/UserExceptions.cs)
+for the pattern (including a case simple enough to just throw `ArgumentException`).
 
 ---
 
@@ -438,7 +464,8 @@ The full list with wrong/right code is in [docs/best-practices.md](docs/best-pra
 5. **Only `ICommandService` starts transactions**, and **never nested.** A command service calling
    another command service shares the scoped manager and throws `NestedTransactionException`; extract
    the shared work into a domain service and call it from the same transaction body
-6. **Repositories never throw `ObjectNotFoundException`.** Absence is a normal result
+6. **Repositories never throw for "not found."** Absence is a normal result, returned as
+   `Optional<T>.Empty`; turning it into an exception is the aggregate service's or use case's call
 7. **Never add query methods to `IRepository`.** Listing and searching belong to `IQueryService`
 8. **Validate in `Create`, not in `Reconstruct`.** `Reconstruct` restores data written under older rules
 9. **Never name a concrete session type in the domain or use case layer.** Take it as a type
@@ -469,7 +496,7 @@ The full list with wrong/right code is in [docs/best-practices.md](docs/best-pra
 | [docs/architecture.md](docs/architecture.md) | **Why `TSession` is passed everywhere**; differences from DDD / Clean Architecture |
 | [docs/getting-started.md](docs/getting-started.md) | Zero to running, in 7 steps. DI registration included |
 | [docs/best-practices.md](docs/best-practices.md) | Every rule, with wrong/right code |
-| [docs/api-reference.md](docs/api-reference.md) | All 35 public types and the meaning of each type parameter |
+| [docs/api-reference.md](docs/api-reference.md) | All 25 public types and the meaning of each type parameter |
 | [docs/domain-model.md](docs/domain-model.md) | Entities, value objects, repositories, aggregates |
 | [docs/use-case.md](docs/use-case.md) | The three service families and where the transaction begins |
 | [docs/optional.md](docs/optional.md) | The three states of `Optional<T>` |
@@ -587,10 +614,11 @@ public sealed class AppSession : IDisposable
 ### 2. 値オブジェクト —— 検証は `Create` に書き、`Reconstruct` では検証しない
 
 ```csharp
-public sealed record UserName : ISingleValueObject<string, UserName>, ILengthDefinedSingleValueObject
+public sealed record UserName : ISingleValueObject<string, UserName>
 {
     private UserName(string value) => Value = value;   // private にして入口を 2 つに絞る
 
+    // interface を介さない素の static メンバー。公開するだけで強制はしない
     public static int MaxLength => 16;
     public static int MinLength => 1;
 
@@ -598,26 +626,35 @@ public sealed record UserName : ISingleValueObject<string, UserName>, ILengthDef
 
     public static UserName Create(string value)        // 外部入力用。検証はここだけ
     {
-        if (value is null)
-        {
-            throw new ValueObjectNullException($"{nameof(UserName)} に null は指定できません。");
-        }
-        if (value.Length < MinLength || value.Length > MaxLength)
-        {
-            // 引数が 3 つとも int。順番を間違えてもコンパイルが通るので名前付きで渡す
-            throw new ValueObjectLengthException(
-                minLength: MinLength, maxLength: MaxLength, currentLength: value.Length);
-        }
-
+        CheckInvariants(value);
         return new UserName(value);
     }
 
     public static UserName Reconstruct(string value) => new(value);   // 復元用。検証しない
+
+    // IValueObject.Validate() は必須メンバーだが Create の代わりではない。
+    // Reconstruct で古いルールのデータを復元した後などに再チェックするための別経路
+    public void Validate() => CheckInvariants(Value);
+
+    private static void CheckInvariants(string value)
+    {
+        if (value is null)
+        {
+            throw new UserNameInvalidException($"{nameof(UserName)} に null は指定できません。");
+        }
+        if (value.Length < MinLength || value.Length > MaxLength)
+        {
+            // 引数が 3 つとも int。順番を間違えてもコンパイルが通るので名前付きで渡す
+            throw new UserNameLengthException(
+                minLength: MinLength, maxLength: MaxLength, currentLength: value.Length);
+        }
+    }
 }
 ```
 
 `Reconstruct` が検証しないのは、ルールを厳しくした後でも古いデータを読み戻せるようにするためです。
-`Validate` メンバーは存在しません（v2.0.1 で削除）。
+`UserNameInvalidException` / `UserNameLengthException` はこのプロジェクトが自分で定義する例外で、
+TADA はもう値オブジェクト用の例外クラスを提供しません。
 
 ### 3. エンティティ —— 等価性は `EntityBase` が実装済み
 
@@ -635,6 +672,9 @@ public sealed class User : EntityBase<User, Guid>
     public static User Reconstruct(Guid identifier, UserName name) => new(identifier, name);
 
     public void Rename(UserName name) => Name = name;
+
+    // IEntity<TIdentifier>.Validate() は必須メンバー。値オブジェクトへ委譲すればよいことが多い
+    public override void Validate() => Name.Validate();
 }
 ```
 
@@ -668,7 +708,7 @@ public sealed class UserRepository : IUserRepository<AppSession>
                 : Optional<User>.Some(User.Reconstruct(row.Id, UserName.Reconstruct(row.Name))));
     }
 
-    // upsert。ObjectAlreadyExistException も ObjectNotFoundException も投げない
+    // upsert。「既に居る」も「見つからない」も例外にしない（判断するのは呼び出し側）
     public ValueTask SaveAsync(
         AppSession session, User entity, OperateInfo operateInfo,
         CancellationToken cancellationToken = default)
@@ -760,7 +800,8 @@ public sealed class CreateUserCommandService<TUserSession> : ICreateUserCommandS
 > 宣言し、`AggregateServiceBase<...>` の派生クラスで実装します。こうしておけば、
 > ユースケースのテストで集約サービスの具象クラスとリポジトリ実装を組み立てずに済みます。
 > ドメインサービスとクエリサービスにも口を立てます。理由はセッション型を隠すためではなく、
-> `ICommandService` / `IQueryService` / `IDomainService` を継承した時点で
+> `ICommandService` / `IQueryService` を継承した時点で（ドメインサービスは `ExecuteAsync` を
+> 自分で宣言した時点で。TADA に共通のインターフェースは無い）
 > 「リクエスト 1 型・レスポンス 1 型」が確定するので、**そこが DTO の置き場所になる**ためです。
 >
 > **集約サービスに汎用の `SaveAsync` を置かないでください。** その口は実質的に集約ルートで、
@@ -820,7 +861,7 @@ UseCase         ICommandService  ← トランザクションの境界（ITransa
                 IQueryService                             — ストアを直接読む
       ↓  セッションを引数で渡す
 Domain          Entity / ValueObject / IRepository        — トランザクションを開始しない
-                IAggregateService / IDomainService
+                IAggregateService / ドメインサービス（プロジェクト側で宣言）
       ↑  実装する
 Infrastructure  リポジトリ実装 / ITransactionService<TSession> / セッション型
 ```
@@ -830,23 +871,28 @@ Infrastructure が具体型を定義して実装で閉じ、Presentation が DI 
 
 ## 主要コンポーネント
 
-公開型は 35 個。詳細は各リンク先にあります。
+公開型は 25 個。詳細は各リンク先にあります。
 
 **エンティティ** — [docs/domain-model.md](docs/domain-model.md)
 
 | 型 | 概要 |
 |---|---|
-| `IEntity<TIdentifier>` | エンティティの契約。要求するのは `Identifier` だけ |
-| `EntityBase<TSelf, TIdentifier>` | 基底クラス。等価性は「実行時型が同じ**かつ**識別子が等しい」 |
+| `IEntity<TIdentifier>` | エンティティの契約。要求するのは `Identifier` と `Validate()` |
+| `EntityBase<TSelf, TIdentifier>` | 基底クラス。等価性は「実行時型が同じ**かつ**識別子が等しい」。`Validate()` は抽象宣言 |
 
 **値オブジェクト** — [docs/domain-model.md](docs/domain-model.md)
 
 | 型 | 概要 |
 |---|---|
-| `IValueObject` | マーカー。`class` ではなく `record` で実装する |
+| `IValueObject` | メンバーは `Validate()` のみ。`class` ではなく `record` で実装する |
 | `ISingleValueObject<TValue>` | `Value` のみ。ジェネリック制約用 |
 | `ISingleValueObject<TValue, TSelf>` | `Create`（検証あり）/ `Reconstruct`（検証なし）の規約が付く |
-| `ILengthDefinedSingleValueObject` | `MinLength` / `MaxLength` を公開する。強制はしない |
+
+`Validate()` は既定実装が無い必須メンバー。`Create` の検証を置き換えるものではなく、
+`Reconstruct` で古いルールのデータを復元した後などに再チェックするための別経路。
+長さの上下限を公開したい値オブジェクトは、interface を介さず素の `static int MaxLength` /
+`MinLength` を宣言するだけでよい（`ILengthDefinedSingleValueObject` は v3.0.0 で削除。
+公開する数値が 2 つだけの薄いマーカーだった）。
 
 **リポジトリ** — [docs/domain-model.md](docs/domain-model.md)
 
@@ -861,9 +907,13 @@ Infrastructure が具体型を定義して実装で閉じ、Presentation が DI 
 |---|---|
 | `IAggregateService<TEntity, TEntityIdentifier, TRepository, TOperateInfo, TSession>` | 型引数 5 個が「エンティティ 1・リポジトリ 1・サービス 1」を表明する |
 | `AggregateServiceBase<...>` | 基底クラス。取得を実装し、`Repository` を派生クラスに公開する |
-| `IDomainService<TReq>` | 集約をまたぐルール。トランザクションを開始しない |
-| `IDomainService<TReq, TRes>` | 戻り値がある版 |
-| `IDomainServiceDTO` | DTO マーカー。**セッションを持つ唯一の DTO** |
+
+ドメインサービスに TADA 由来の共通インターフェースは無い（`IDomainService<TReq>` /
+`IDomainService<TReq, TRes>` / `IDomainServiceDTO` は v3.0.0 で削除。扱う対象・引数・戻り値が
+プロジェクトごとに柔軟すぎて、共通の親を立てても効果が薄かったため）。
+「専用の口を立て、リクエストを `Req` としてネストする」という規約は変わらず、
+`ExecuteAsync` を自分で 1 つ宣言するだけになる。
+→ [samples/CSStack.TADA.Sample/Domain/UserNameUniquenessService.cs](samples/CSStack.TADA.Sample/Domain/UserNameUniquenessService.cs)
 
 **ユースケース** — [docs/use-case.md](docs/use-case.md)
 
@@ -898,14 +948,15 @@ Infrastructure が具体型を定義して実装で閉じ、Presentation が DI 
 | 型 | 概要 |
 |---|---|
 | `TADAException` | すべての基底 |
-| `ObjectNotFoundException` | 必要な対象が存在しなかった。**リポジトリは投げない** |
-| `ObjectAlreadyExistException` | 存在してはいけない対象が存在した。リポジトリは投げない |
-| `DomainInvalidOperationException` | ドメイン上許されない操作 |
-| `ValueObjectInvalidException` | 値オブジェクトの不変条件違反。`Create` から投げる |
-| `ValueObjectNullException` | 値が null だった |
-| `ValueObjectLengthException` | 長さが範囲外。`MinLength` / `MaxLength` / `CurrentLength` を持つ |
 | `TransactionSessionNotFoundException` | 開始されていないセッションを要求した |
 | `NestedTransactionException` | 実行中のトランザクションの中で、同じマネージャーのトランザクションを開始した |
+
+TADA が今も提供する例外はこの 3 個だけで、実際に投げるのは 2 個（`TADAException` は基底）。
+ドメイン向けの例外（対象が見つからない・既に存在する・値オブジェクトの不変条件違反・
+許されない操作）は v3.0.0 で削除された。中途半端なヘルパーより、各プロジェクトが自分の
+ドメインの語彙で例外を定義したほうが健全と判断したため。
+→ [samples/CSStack.TADA.Sample/Domain/UserExceptions.cs](samples/CSStack.TADA.Sample/Domain/UserExceptions.cs)
+（単純な不変条件なら `ArgumentException` で足りる例もある）
 
 ## 必ず踏む地雷
 
@@ -921,7 +972,8 @@ Infrastructure が具体型を定義して実装で閉じ、Presentation が DI 
    コマンドサービスが別のコマンドサービスを呼ぶと Scoped の同一マネージャーに行き着き、
    `NestedTransactionException` になります。共通処理はドメインサービスに切り出し、
    同じトランザクションの本体から呼んでください
-6. **リポジトリは `ObjectNotFoundException` を投げない。** 不在は正常な結果です
+6. **リポジトリは「見つからない」を例外にしない。** 不在は `Optional<T>.Empty` で返る正常な結果で、
+   例外にするかどうかは集約サービス / ユースケースが決めます
 7. **`IRepository` に検索系メソッドを足さない。** 一覧・条件検索は `IQueryService` の仕事
 8. **検証は `Create` に書き、`Reconstruct` では検証しない**
 9. **ドメイン層・ユースケース層に具体的なセッション型を書かない。** 型引数として受け取り
@@ -950,7 +1002,7 @@ Infrastructure が具体型を定義して実装で閉じ、Presentation が DI 
 | [docs/architecture.md](docs/architecture.md) | **なぜ `TSession` を引き回すのか**。DDD / クリーンアーキテクチャとの差分 |
 | [docs/getting-started.md](docs/getting-started.md) | ゼロから動かすまでの 7 ステップ。DI 登録を含む |
 | [docs/best-practices.md](docs/best-practices.md) | 規約の一覧。間違い → 正しい形 → なぜ |
-| [docs/api-reference.md](docs/api-reference.md) | 公開型 35 個と型引数の意味 |
+| [docs/api-reference.md](docs/api-reference.md) | 公開型 25 個と型引数の意味 |
 | [docs/domain-model.md](docs/domain-model.md) | エンティティ / 値オブジェクト / リポジトリ / 集約 |
 | [docs/use-case.md](docs/use-case.md) | 3 種のサービスの使い分けとトランザクションの境界 |
 | [docs/optional.md](docs/optional.md) | `Optional<T>` の三状態 |

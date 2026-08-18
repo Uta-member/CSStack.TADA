@@ -36,15 +36,10 @@
         /// <summary>
         /// 外部からの入力から生成する。検証はここに書く。
         /// </summary>
-        /// <exception cref="ValueObjectInvalidException">空の <see cref="Guid"/> が渡された。</exception>
+        /// <exception cref="ArgumentException">空の <see cref="Guid"/> が渡された。</exception>
         public static UserId Create(Guid value)
         {
-            // 検証は Create の中だけ。Validate メンバーは存在しない。
-            if (value == Guid.Empty)
-            {
-                throw new ValueObjectInvalidException($"{nameof(UserId)} に空の Guid は指定できません。");
-            }
-
+            CheckInvariants(value);
             return new UserId(value);
         }
 
@@ -66,6 +61,27 @@
         public override string ToString()
         {
             return Value.ToString();
+        }
+
+        /// <summary>
+        /// 不変条件を確かめる。破っていれば例外を投げる。
+        /// </summary>
+        /// <remarks>
+        /// <see cref="Create"/> と同じ検証をここでも使えるようにし、<c>Reconstruct</c> で
+        /// 復元した後に検証したいときはこちらを呼ぶ。
+        /// </remarks>
+        /// <exception cref="ArgumentException">空の <see cref="Guid"/> になっている。</exception>
+        public void Validate()
+        {
+            CheckInvariants(Value);
+        }
+
+        private static void CheckInvariants(Guid value)
+        {
+            if (value == Guid.Empty)
+            {
+                throw new ArgumentException($"{nameof(UserId)} に空の Guid は指定できません。");
+            }
         }
     }
 }

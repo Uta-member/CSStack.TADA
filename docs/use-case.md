@@ -1,7 +1,9 @@
 # ユースケース層とトランザクションの接続
 
-`ICommandService` / `IQueryService` / `IDomainService` は、シグネチャだけ見ると
+`ICommandService` / `IQueryService` / ドメインサービスは、シグネチャだけ見ると
 どれも `ExecuteAsync(req, ct)` で区別がつきません。**違いは型ではなく責務にあります。**
+（ドメインサービスには TADA 由来の共通インターフェースが無く、`ExecuteAsync` を自分で
+1 つ宣言しますが、シグネチャの形は同じです。）
 このページでその境界と、TADA の名前の由来である「トランザクションとの接続点」を示します。
 
 ドメイン層の規約は [domain-model.md](domain-model.md)、
@@ -15,7 +17,11 @@
 |---|---|---|
 | `ICommandService` | 状態を変える 1 ユースケース。外部からの入口 | **ここで開始し、ここで終わる** |
 | `IQueryService` | 読み取り専用の 1 ユースケース。DTO を返す | 原則として不要 |
-| `IDomainService` | 集約をまたぐドメインのルール | 開始しない。渡されたセッションで動く |
+| ドメインサービス | 集約をまたぐドメインのルール | 開始しない。渡されたセッションで動く |
+
+> `ICommandService` / `IQueryService` と違い、ドメインサービスには TADA が用意する
+> 共通インターフェースが無い。口の形（`ExecuteAsync` を 1 つ持つ）は規約であって、
+> 型で強制されているわけではない（→ [domain-model.md](domain-model.md#ドメインサービス)）。
 
 判断に迷ったら次の順で下ろしてください。
 
@@ -66,7 +72,7 @@ public sealed class ChangeUserNameCommandService<TUserSession> : IChangeUserName
 		IChangeUserNameCommandService.Req req,
 		CancellationToken cancellationToken = default)
 	{
-		// 値オブジェクトへの変換はここ。不正な入力は ValueObjectInvalidException になる
+		// 値オブジェクトへの変換はここ。不正な入力なら Create が例外を投げる（型はプロジェクト側で定義する）
 		var userId = UserId.Create(req.UserId);
 		var newName = UserName.Create(req.NewName);
 
@@ -150,7 +156,7 @@ await commandService.ExecuteAsync(new IChangeUserNameCommandService.Req(userId, 
 | 依存先 | 受ける型 |
 |---|---|
 | 集約サービス | `IUserAggregateService<TUserSession>`（`IAggregateService` を継承した口） |
-| ドメインサービス | `IUserNameUniquenessService<TUserSession>`（`IDomainService` を継承した口） |
+| ドメインサービス | `IUserNameUniquenessService<TUserSession>`（自分で `ExecuteAsync` を宣言した口） |
 | リポジトリ | 集約サービス越しに触るのが基本。直接なら `IUserRepository<TUserSession>` |
 
 具象の集約サービスを注入すると、**このユースケースのテストが集約サービスの具象クラスと
@@ -161,7 +167,7 @@ await commandService.ExecuteAsync(new IChangeUserNameCommandService.Req(userId, 
 
 `ICommandService` を継承した時点で「メソッドは 1 つ、リクエスト 1 型、レスポンス 1 型」が
 確定しています。**つまり DTO は口と 1 対 1 に対応するので、口の中に `Req` / `Res` として
-置いてください。** これは `IQueryService` と `IDomainService` でも同じです。
+置いてください。** これは `IQueryService` でも、ドメインサービスの自作の口でも同じです。
 
 ```csharp
 public interface ICreateUserCommandService
@@ -278,15 +284,14 @@ public sealed record UserSummary(Guid UserId, string Name, DateTimeOffset Regist
 ICommandService<TReq>          // 1 引数版は「リクエスト」
 ICommandService<TReq, TRes>
 
-IDomainService<TReq>           // 1 引数版は「リクエスト」
-IDomainService<TReq, TRes>
-
 IQueryService<TRes>            // 1 引数版は「レスポンス」← ここだけ逆
 IQueryService<TReq, TRes>
 ```
 
 引数を取らないクエリにも返すものはある、という理由でこうなっています。
 つまり `IQueryService<Foo>` は「`Foo` を返す」、`ICommandService<Foo>` は「`Foo` を受け取る」です。
+（ドメインサービスは継承する共通インターフェースが無いので、この罠自体がありません。
+自分で宣言する `Req`/`ExecuteAsync` の形は好きに決められます。）
 
 **リクエストがあるなら常に 2 引数版の `IQueryService<TReq, TRes>` を使ってください。**
 そうすれば曖昧さは発生しません。
@@ -295,18 +300,22 @@ IQueryService<TReq, TRes>
 
 ## DTO
 
-3 つの DTO マーカー（`ICommandServiceDTO` / `IQueryServiceDTO` / `IDomainServiceDTO`）は
-メンバーを持ちません。**別の層の DTO を取り違えて渡せないようにするためだけの目印**です。
+2 つの DTO マーカー（`ICommandServiceDTO` / `IQueryServiceDTO`）はメンバーを持ちません。
+**別の層の DTO を取り違えて渡せないようにするためだけの目印**です。
 いずれも `record` で定義し、**それを使うサービスの口の中に `Req` / `Res` としてネスト**します
 （→ [リクエストとレスポンスは口の中にネストする](#リクエストとレスポンスは口の中にネストする)）。
+
+**ドメインサービスの `Req` にはマーカーがありません。** `IDomainServiceDTO` は共通インターフェースの
+削除と合わせて v3.0.0 で削除されたため、ドメインサービスの `Req` はただの `record` です。
+とはいえ「口の中にネストする」という置き場所の規約自体は同じです。
 
 | DTO | 載せるもの | 載せないもの |
 |---|---|---|
 | `ICommandServiceDTO` | 呼び出し側から来た引数、操作情報 | エンティティ、セッション |
 | `IQueryServiceDTO` | 検索条件、表示用の平坦なデータ | エンティティ |
-| `IDomainServiceDTO` | 引数、**セッション**、エンティティ・値オブジェクト | — |
+| ドメインサービスの `Req`（マーカー無し） | 引数、**セッション**、エンティティ・値オブジェクト | — |
 
-`IDomainServiceDTO` だけセッションを載せるのは、`IDomainService.ExecuteAsync` に
+ドメインサービスの `Req` だけセッションを載せるのは、その `ExecuteAsync` に
 セッション引数が無いためです。ドメインサービスはドメインの内側で動くので、
 エンティティや値オブジェクトをそのまま渡して構いません。
 
@@ -324,7 +333,7 @@ IQueryService<TReq, TRes>
 |---|---|
 | 状態を変えるユースケース | `ICommandService`。`ITransactionManager.ExecuteTransactionAsync` で包む |
 | 読み取りのユースケース | `IQueryService<TReq, TRes>`。ストアを直接読んで DTO を返す |
-| 集約をまたぐルール | `IDomainService`。セッションはリクエスト DTO で受け取る |
+| 集約をまたぐルール | ドメインサービス。自分で `ExecuteAsync` を宣言し、セッションはリクエスト DTO で受け取る |
 | リクエスト / レスポンスを置く | それを使う口の中にネストして `Req` / `Res` と名付ける |
 | セッションを取り出す | `sessions.GetSession<TUserSession>()` |
 | セッション型を受け取る | 型引数で受ける。名前は `TSession` ではなく `T[集約名]Session` |

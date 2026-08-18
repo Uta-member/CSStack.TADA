@@ -23,8 +23,8 @@
 	/// Everything an aggregate needs beyond reaching its entity — registering one, applying a change to
 	/// it, deleting it, deciding that a missing entity is an error — is added by the concrete service,
 	/// which is free to use <typeparamref name="TRepository"/> directly. This is also the layer that turns
-	/// <see cref="Optional{TValue}.Empty"/> into <see cref="ObjectNotFoundException"/> when the operation
-	/// requires the entity to exist; the repository never makes that call.
+	/// <see cref="Optional{TValue}.Empty"/> into an exception when the operation requires the entity to
+	/// exist; the repository never makes that call.
 	/// </para>
 	/// <para>
 	/// <b>Name those operations after what the domain does, and do not declare a general
@@ -68,8 +68,8 @@
 		/// </summary>
 		/// <remarks>
 		/// Returns <see cref="Optional{TEntity}.Empty"/> when there is no such entity — not finding one is
-		/// a normal outcome, and whether it is an error depends on the operation. Throw
-		/// <see cref="ObjectNotFoundException"/> from the method that requires the entity, not from here.
+		/// a normal outcome, and whether it is an error depends on the operation. Throw from the method
+		/// that requires the entity, not from here.
 		/// </remarks>
 		/// <param name="session">Transaction session</param>
 		/// <param name="identifier">Identifier</param>

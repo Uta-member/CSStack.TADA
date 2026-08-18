@@ -41,12 +41,12 @@
         }
 
         [Fact]
-        public async Task 重複登録はObjectAlreadyExistExceptionでロールバックされ既存行は変わらない()
+        public async Task 重複登録はUserAlreadyExistsExceptionでロールバックされ既存行は変わらない()
         {
             var id = Guid.NewGuid();
             _store.Set(new UserRow(id, "既存の名前", _operateInfo));
 
-            var exception = await Assert.ThrowsAsync<ObjectAlreadyExistException>(
+            var exception = await Assert.ThrowsAsync<UserAlreadyExistsException>(
                 async () => await _commandService.ExecuteAsync(new CreateUserReq(id, "taro", _operateInfo)));
 
             Assert.Equal(typeof(User), exception.ObjectType);
@@ -63,12 +63,21 @@
             var id = Guid.NewGuid();
             var tooLong = new string('a', UserName.MaxLength + 1);
 
-            await Assert.ThrowsAsync<ValueObjectLengthException>(
+            await Assert.ThrowsAsync<UserNameLengthException>(
                 async () => await _commandService.ExecuteAsync(new CreateUserReq(id, tooLong, _operateInfo)));
 
             Assert.Equal(0, _store.Count);
             Assert.True(_transactionService.LastSession!.IsRolledBack);
             Assert.True(_transactionService.LastSession!.IsDisposed);
+        }
+
+        [Fact]
+        public void Validateは復元されたエンティティの値オブジェクトの不変条件違反を伝播する()
+        {
+            var tooLong = new string('a', UserName.MaxLength + 1);
+            var user = User.Reconstruct(UserId.New(), UserName.Reconstruct(tooLong));
+
+            Assert.Throws<UserNameLengthException>(user.Validate);
         }
 
         [Fact]

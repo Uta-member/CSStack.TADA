@@ -17,6 +17,10 @@
             public override string Identifier { get; }
 
             public string Name { get; set; }
+
+            public override void Validate()
+            {
+            }
         }
 
         private sealed class Admin : User
@@ -43,6 +47,10 @@
             }
 
             public override string Identifier { get; }
+
+            public override void Validate()
+            {
+            }
         }
 
         // --- 識別子による同一性 -------------------------------------------------------------

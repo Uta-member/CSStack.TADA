@@ -22,9 +22,8 @@
 	/// operation is named after what the domain does and keeps the read and the write to itself; a
 	/// <c>SaveAsync</c> that takes an entity from the caller is not one of them — see
 	/// <see cref="IAggregateService{TEntity, TEntityIdentifier, TRepository, TOperateInfo, TSession}"/>.
-	/// A helper that turns a missing entity into <see cref="ObjectNotFoundException"/> is useful here, but
-	/// keep it <c>private</c>: handing the entity up to the use case gives it something it can change with
-	/// no way to persist.
+	/// A helper that turns a missing entity into an exception is useful here, but keep it <c>private</c>:
+	/// handing the entity up to the use case gives it something it can change with no way to persist.
 	/// </para>
 	/// <para>
 	/// <b>This class is an implementation detail; do not hand it to the layers above.</b> Declare the

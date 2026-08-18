@@ -56,8 +56,8 @@
 		/// The implicit conversion on <see cref="Optional{TEntity}"/> turns <c>null</c> into <c>Some(null)</c>,
 		/// so <c>return null;</c> produces a result whose <see cref="Optional{TEntity}.HasValue"/> is true and
 		/// whose value is null, and callers using <see cref="Optional{TEntity}.TryGetValue(out TEntity)"/> will
-		/// get true and then a <see cref="NullReferenceException"/>. Not finding the entity is a normal outcome
-		/// and must not throw <see cref="ObjectNotFoundException"/>; leave that decision to the caller.
+		/// get true and then a <see cref="NullReferenceException"/>. Not finding the entity is a normal
+		/// outcome and must not throw; leave that decision to the caller.
 		/// </remarks>
 		/// <param name="session">Transaction factor</param>
 		/// <param name="identifier">Entity identifier</param>
@@ -76,8 +76,7 @@
 		/// <remarks>
 		/// <para>
 		/// Because it is an upsert, it does not signal "already exists" or "not found" — those are not
-		/// failures here, and a correct implementation throws neither
-		/// <see cref="ObjectAlreadyExistException"/> nor <see cref="ObjectNotFoundException"/>.
+		/// failures here, and a correct implementation throws neither.
 		/// Whether an entity that is missing or already present is a problem depends on the operation
 		/// being carried out, so that decision belongs to the aggregate service or the use case that
 		/// looked the entity up — not to the repository. Failures reaching the caller are infrastructure

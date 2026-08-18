@@ -38,11 +38,7 @@ namespace CSStack.TADA.Tests
         public static UserId Create(Guid value)
         {
             // Validation belongs here and nowhere else.
-            if (value == Guid.Empty)
-            {
-                throw new ValueObjectInvalidException($"{nameof(UserId)} must not be empty.");
-            }
-
+            CheckInvariants(value);
             return new UserId(value);
         }
 
@@ -57,14 +53,27 @@ namespace CSStack.TADA.Tests
         {
             return Create(Guid.NewGuid());
         }
+
+        /// <summary>Re-check the invariant <see cref="Create"/> applied, for an instance rebuilt by <see cref="Reconstruct"/>.</summary>
+        public void Validate()
+        {
+            CheckInvariants(Value);
+        }
+
+        private static void CheckInvariants(Guid value)
+        {
+            if (value == Guid.Empty)
+            {
+                throw new UserIdInvalidException($"{nameof(UserId)} must not be empty.");
+            }
+        }
     }
 
     /// <summary>
-    /// A length-bounded string value object. Publishes its bounds through
-    /// <see cref="ILengthDefinedSingleValueObject"/> and enforces them in <see cref="Create"/>.
+    /// A length-bounded string value object. Publishes its bounds as plain static members and enforces
+    /// them in <see cref="Create"/>.
     /// </summary>
-    internal sealed record UserName
-        : ISingleValueObject<string, UserName>, ISingleValueObject<string>, ILengthDefinedSingleValueObject
+    internal sealed record UserName : ISingleValueObject<string, UserName>, ISingleValueObject<string>
     {
         private UserName(string value)
         {
@@ -79,18 +88,7 @@ namespace CSStack.TADA.Tests
 
         public static UserName Create(string value)
         {
-            if (value is null)
-            {
-                throw new ValueObjectNullException($"{nameof(UserName)} must not be null.");
-            }
-            if (value.Length < MinLength || value.Length > MaxLength)
-            {
-                throw new ValueObjectLengthException(
-                    minLength: MinLength,
-                    maxLength: MaxLength,
-                    currentLength: value.Length);
-            }
-
+            CheckInvariants(value);
             return new UserName(value);
         }
 
@@ -98,6 +96,83 @@ namespace CSStack.TADA.Tests
         {
             return new UserName(value);
         }
+
+        /// <summary>Re-check the invariants <see cref="Create"/> applied, for an instance rebuilt by <see cref="Reconstruct"/>.</summary>
+        public void Validate()
+        {
+            CheckInvariants(Value);
+        }
+
+        private static void CheckInvariants(string value)
+        {
+            if (value is null)
+            {
+                throw new UserNameInvalidException($"{nameof(UserName)} must not be null.");
+            }
+            if (value.Length < MinLength || value.Length > MaxLength)
+            {
+                throw new UserNameLengthException(
+                    minLength: MinLength,
+                    maxLength: MaxLength,
+                    currentLength: value.Length);
+            }
+        }
+    }
+
+    // ---- Exceptions ---------------------------------------------------------------------------------
+
+    // TADA no longer ships exception types of its own for these cases; each project defines what it
+    // needs, as this test double does.
+
+    /// <summary>Thrown when <see cref="UserId"/>'s invariant is broken.</summary>
+    internal sealed class UserIdInvalidException : Exception
+    {
+        public UserIdInvalidException(string message)
+            : base(message)
+        {
+        }
+    }
+
+    /// <summary>Thrown when <see cref="UserName"/>'s invariants are broken.</summary>
+    internal class UserNameInvalidException : Exception
+    {
+        public UserNameInvalidException(string message)
+            : base(message)
+        {
+        }
+    }
+
+    /// <summary>Thrown when <see cref="UserName"/> breaks its length bounds. Carries the bounds and the rejected length.</summary>
+    internal sealed class UserNameLengthException : UserNameInvalidException
+    {
+        public UserNameLengthException(int minLength, int maxLength, int currentLength)
+            : base($"UserName must be between {minLength} and {maxLength} characters (was {currentLength}).")
+        {
+            MinLength = minLength;
+            MaxLength = maxLength;
+            CurrentLength = currentLength;
+        }
+
+        public int CurrentLength { get; }
+
+        public int MaxLength { get; }
+
+        public int MinLength { get; }
+    }
+
+    /// <summary>Thrown when an entity that must not already exist is found. Carries the type and identifier looked up.</summary>
+    internal sealed class UserAlreadyExistsException : Exception
+    {
+        public UserAlreadyExistsException(Type objectType, object identifier)
+            : base($"The object of type '{objectType.FullName}' identified by '{identifier}' already exists.")
+        {
+            ObjectType = objectType;
+            Identifier = identifier;
+        }
+
+        public object Identifier { get; }
+
+        public Type ObjectType { get; }
     }
 
     // ---- Entity ------------------------------------------------------------------------------------
@@ -130,6 +205,13 @@ namespace CSStack.TADA.Tests
         public void Rename(UserName name)
         {
             Name = name;
+        }
+
+        /// <inheritdoc/>
+        public override void Validate()
+        {
+            Identifier.Validate();
+            Name.Validate();
         }
     }
 
@@ -360,7 +442,7 @@ namespace CSStack.TADA.Tests
                     if (existing.HasValue)
                     {
                         // "Already exists" is the use case's call, not the repository's.
-                        throw new ObjectAlreadyExistException(typeof(User), req.UserId);
+                        throw new UserAlreadyExistsException(typeof(User), req.UserId);
                     }
 
                     var user = User.Create(userId, userName);

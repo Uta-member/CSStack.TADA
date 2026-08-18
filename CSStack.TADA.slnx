@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="samples/CSStack.TADA.Sample/CSStack.TADA.Sample.csproj" />
+  <Project Path="src/CSStack.TADA/CSStack.TADA.csproj" />
+  <Project Path="tests/CSStack.TADA.Tests/CSStack.TADA.Tests.csproj" />
+</Solution>
