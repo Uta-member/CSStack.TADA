@@ -15,7 +15,7 @@
     /// <remarks>
     /// <para>
     /// <b>型引数が 1 つの <see cref="IQueryService{TRes}"/> は「レスポンス」を表す。</b>
-    /// <c>ICommandService&lt;T&gt;</c> や <c>IDomainService&lt;T&gt;</c> の 1 つ目がリクエストなのと逆なので、
+    /// <c>ICommandService&lt;T&gt;</c> やドメインサービスの口の 1 つ目がリクエストなのと逆なので、
     /// 引数があるときは迷わず <see cref="IQueryService{TReq, TRes}"/> を使うとよい。
     /// </para>
     /// <para>

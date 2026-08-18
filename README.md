@@ -383,7 +383,7 @@ All 25 public types. Details are behind the links.
 validation in `Create` — it is a separate, on-demand recheck, most useful after `Reconstruct` restores
 data written under older rules. A value object that wants to publish length bounds does so as plain
 `static int MaxLength` / `MinLength` members, no interface required (`ILengthDefinedSingleValueObject`
-was removed in v3.0.0 — it only ever published two numbers).
+was removed in v4.0.0 — it only ever published two numbers).
 
 **Repositories** — [docs/domain-model.md](docs/domain-model.md)
 
@@ -400,7 +400,7 @@ was removed in v3.0.0 — it only ever published two numbers).
 | `AggregateServiceBase<...>` | Base class; implements the lookup, exposes `Repository` to subclasses |
 
 Domain services have no common TADA interface (`IDomainService<TReq>` / `IDomainService<TReq, TRes>` /
-`IDomainServiceDTO` were removed in v3.0.0 — the shape a domain service needs varies too much between
+`IDomainServiceDTO` were removed in v4.0.0 — the shape a domain service needs varies too much between
 projects for a shared parent to earn its keep). The convention survives: declare an interface, declare
 `ExecuteAsync` on it by hand, and nest the request as `Req`. See
 [samples/CSStack.TADA.Sample/Domain/UserNameUniquenessService.cs](samples/CSStack.TADA.Sample/Domain/UserNameUniquenessService.cs).
@@ -443,7 +443,7 @@ projects for a shared parent to earn its keep). The convention survives: declare
 
 These are the only three exceptions the library still ships, and the only two it actually throws
 itself (`TADAException` is a base, not something thrown directly). Domain-facing exception types
-(missing object, duplicate object, invalid value object, forbidden operation) were removed in v3.0.0:
+(missing object, duplicate object, invalid value object, forbidden operation) were removed in v4.0.0:
 half-hearted helpers were judged worse than each project defining exceptions in its own domain
 vocabulary. See
 [samples/CSStack.TADA.Sample/Domain/UserExceptions.cs](samples/CSStack.TADA.Sample/Domain/UserExceptions.cs)
@@ -891,7 +891,7 @@ Infrastructure が具体型を定義して実装で閉じ、Presentation が DI 
 `Validate()` は既定実装が無い必須メンバー。`Create` の検証を置き換えるものではなく、
 `Reconstruct` で古いルールのデータを復元した後などに再チェックするための別経路。
 長さの上下限を公開したい値オブジェクトは、interface を介さず素の `static int MaxLength` /
-`MinLength` を宣言するだけでよい（`ILengthDefinedSingleValueObject` は v3.0.0 で削除。
+`MinLength` を宣言するだけでよい（`ILengthDefinedSingleValueObject` は v4.0.0 で削除。
 公開する数値が 2 つだけの薄いマーカーだった）。
 
 **リポジトリ** — [docs/domain-model.md](docs/domain-model.md)
@@ -909,7 +909,7 @@ Infrastructure が具体型を定義して実装で閉じ、Presentation が DI 
 | `AggregateServiceBase<...>` | 基底クラス。取得を実装し、`Repository` を派生クラスに公開する |
 
 ドメインサービスに TADA 由来の共通インターフェースは無い（`IDomainService<TReq>` /
-`IDomainService<TReq, TRes>` / `IDomainServiceDTO` は v3.0.0 で削除。扱う対象・引数・戻り値が
+`IDomainService<TReq, TRes>` / `IDomainServiceDTO` は v4.0.0 で削除。扱う対象・引数・戻り値が
 プロジェクトごとに柔軟すぎて、共通の親を立てても効果が薄かったため）。
 「専用の口を立て、リクエストを `Req` としてネストする」という規約は変わらず、
 `ExecuteAsync` を自分で 1 つ宣言するだけになる。
@@ -953,7 +953,7 @@ Infrastructure が具体型を定義して実装で閉じ、Presentation が DI 
 
 TADA が今も提供する例外はこの 3 個だけで、実際に投げるのは 2 個（`TADAException` は基底）。
 ドメイン向けの例外（対象が見つからない・既に存在する・値オブジェクトの不変条件違反・
-許されない操作）は v3.0.0 で削除された。中途半端なヘルパーより、各プロジェクトが自分の
+許されない操作）は v4.0.0 で削除された。中途半端なヘルパーより、各プロジェクトが自分の
 ドメインの語彙で例外を定義したほうが健全と判断したため。
 → [samples/CSStack.TADA.Sample/Domain/UserExceptions.cs](samples/CSStack.TADA.Sample/Domain/UserExceptions.cs)
 （単純な不変条件なら `ArgumentException` で足りる例もある）

@@ -6,7 +6,8 @@
 | 移行 | 規模 | 主な作業 |
 |---|---|---|
 | [v2.x → v3.0.0](#v2x--v300) | **大** | `ITransactionService` 実装の修正、`Optional<T>` の生成方法、エンティティの等価性 |
-| [v3.0.0 内の追加変更](#v300-内の追加変更-validate-の復活と削除された型) | 中〜大 | `Validate` の復活、`ILengthDefinedSingleValueObject` / `IDomainService` 系 / 例外クラスの削除 |
+| [v3.0.0 → v3.0.1](#v300--v301) | 小 | トランザクションの入れ子検出（`NestedTransactionException`）、`beforeRollbackHandler` の呼び出し位置（doc 訂正） |
+| [v3.0.1 → v4.0.0](#v301--v400-validate-の復活と削除された型) | 中〜大 | `Validate` の復活、`ILengthDefinedSingleValueObject` / `IDomainService` 系 / 例外クラスの削除 |
 | [v1.x → v2.0.x](#v1x--v20x) | 中 | 削除された型の置き換え、`Validate` の廃止、依存パッケージの明示 |
 
 ---
@@ -238,17 +239,35 @@ config.NewConfig<MPOptional<T>, Optional<T>>().MapWith(src => src.ToOptional());
 - `BeginTransactionsAsync` を直接呼んで途中で失敗した場合も、開始済みのセッションが
   ロールバック・`Dispose` されるようになった（放置されなくなった）
 
-#### トランザクションの入れ子が例外になった
+### 移行後の確認
 
-v2.x では、実行中の `ExecuteTransactionAsync` の本体からもう一度
+- [ ] `ITransactionService` の実装から `Dispose` 呼び出しが消えている
+- [ ] `TransactionManager` が **Scoped** で登録されている（v3 で変わったわけではないが、
+      セッションを保持するようになったため事故ったときの被害が大きい）
+- [ ] `ITransactionService<TSession>` がセッション型の数だけ登録されている
+- [ ] エンティティの等価性に依存した処理を洗い出した
+- [ ] 永続化・キャッシュされたハッシュ値を作り直した
+
+---
+
+## v3.0.0 → v3.0.1
+
+コンパイルエラーになる変更は無い。**静かに壊れていたものが検出可能になる**変更が中心。
+このほか、セッション型の扱い・サービスの口の立て方・DTO のネストに関する規約が
+`docs/` に多数追加されたが、コードへの影響は無いので詳細は
+[CHANGELOG.md の \[3.0.1\]](../CHANGELOG.md#301---2026-07-30) を参照。
+
+### 1. トランザクションの入れ子が例外になった
+
+v3.0.0 までは、実行中の `ExecuteTransactionAsync` の本体からもう一度
 `ExecuteTransactionAsync` を呼べてしまい、**内側の commit が外側のセッションまで
 確定して `Dispose` していた**。例外は出ず、外側の残りの処理は Dispose 済みセッションに
 対して動き、外側の commit は「対象なし」で成功していた。
 
-v3.0.0 からは入り口で `NestedTransactionException` を投げる。
+v3.0.1 からは入り口で `NestedTransactionException` を投げる。
 
 ```csharp
-// v2.x: 静かに壊れていた / v3.0.0: NestedTransactionException
+// v3.0.0 まで: 静かに壊れていた / v3.0.1: NestedTransactionException
 await _transactionManager.ExecuteTransactionAsync<AppSession>(
     async (sessions, token) =>
     {
@@ -260,9 +279,9 @@ await _transactionManager.ExecuteTransactionAsync<AppSession>(
 同じ `ExecuteTransactionAsync` の本体からセッションを渡して呼ぶ。
 連続して 2 つのトランザクションを張るのは従来どおり正当。
 
-#### `beforeRollbackHandler` の呼び出し位置（doc の訂正）
+### 2. `beforeRollbackHandler` の呼び出し位置（doc の訂正）
 
-挙動は変わっていないが、v3.0.0 で XML doc と `docs/` の記述を実態に合わせた。
+挙動は変わっていないが、v3.0.1 で XML doc と `docs/` の記述を実態に合わせた。
 
 - 本体（または begin）が失敗した場合 → ロールバック**前**に呼ばれる（セッションは生きている）
 - **commit が失敗した場合 → ロールバック後**に呼ばれる。`CommitTransactionsAsync` が
@@ -273,22 +292,15 @@ await _transactionManager.ExecuteTransactionAsync<AppSession>(
 
 ### 移行後の確認
 
-- [ ] `ITransactionService` の実装から `Dispose` 呼び出しが消えている
-- [ ] `TransactionManager` が **Scoped** で登録されている（v3 で変わったわけではないが、
-      セッションを保持するようになったため事故ったときの被害が大きい）
-- [ ] `ITransactionService<TSession>` がセッション型の数だけ登録されている
-- [ ] エンティティの等価性に依存した処理を洗い出した
-- [ ] 永続化・キャッシュされたハッシュ値を作り直した
 - [ ] コマンドサービスから別のコマンドサービスを呼んでいる箇所を洗い出した
       （入れ子は `NestedTransactionException` になる）
 
 ---
 
-## v3.0.0 内の追加変更: Validate の復活と削除された型
+## v3.0.1 → v4.0.0: Validate の復活と削除された型
 
-上の「`TransactionManager` と `Optional<T>`」の変更とは独立に効いてくる、
-同じ v3.0.0 の中での追加変更。**値オブジェクト・エンティティ・ドメインサービス・
-例外を自分で書いているプロジェクトはほぼ確実に影響を受ける。**
+**値オブジェクト・エンティティ・ドメインサービス・例外を自分で書いているプロジェクトは
+ほぼ確実に影響を受ける。**
 
 ### 1. `IValueObject` / `IEntity<TIdentifier>` に `Validate()` を実装する（必須。コンパイルエラーになる）
 
@@ -298,7 +310,7 @@ await _transactionManager.ExecuteTransactionAsync<AppSession>(
 **エンティティも例外なく影響を受ける。**
 
 ```csharp
-// Before（v3.0.0 のこの変更より前）
+// Before（v4.0.0 のこの変更より前）
 public sealed record UserName : ISingleValueObject<string, UserName>
 {
     private UserName(string value) => Value = value;
@@ -476,7 +488,7 @@ if (userName.IsInvalidValue()) { /* ... */ }
 
 ```csharp
 // After — 生成時に検証し、不正なインスタンスを作らせない
-var userName = UserName.Create(input);   // 不正なら ValueObjectInvalidException
+var userName = UserName.Create(input);   // 不正なら ValueObjectInvalidException（この型自体は v4.0.0 で削除。以後は自前の例外で代替）
 ```
 
 削除されたもの:
@@ -490,9 +502,9 @@ var userName = UserName.Create(input);   // 不正なら ValueObjectInvalidExcep
 「未検証の値オブジェクトが存在しうる」ことになってしまうため。
 検証は `Create` の中に書き、永続化からの復元である `Reconstruct` では検証しない。
 
-> **この方針は v3.0.0 で見直されました。** あるインスタンスが `Create` を通ったかどうかを
+> **この方針は v4.0.0 で見直されました。** あるインスタンスが `Create` を通ったかどうかを
 > 外部から検証する術が無いという不便が実用上多く、`Validate()` は
-> [上のセクション](#v300-内の追加変更-validate-の復活と削除された型)で復活しています。
+> [上のセクション](#v301--v400-validate-の復活と削除された型)で復活しています。
 > 構築時の検証が `Create` の仕事であることは変わりません。
 
 → [domain-model.md](domain-model.md#検証は-create-の中に書く)

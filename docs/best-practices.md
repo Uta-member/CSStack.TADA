@@ -223,7 +223,7 @@ await _transactionManager.ExecuteTransactionAsync<TUserSession>(
 呼ぶと**同じマネージャーインスタンス**に行き着く。マネージャーはセッションを
 「どの `ExecuteTransactionAsync` が開始したか」の区別なしに保持しているため、
 内側の commit が外側のセッションまで確定して `Dispose` してしまう。
-v3.0.0 からはこれを検知して `NestedTransactionException` を投げる。
+v3.0.1 からはこれを検知して `NestedTransactionException` を投げる。
 
 **連続して**（入れ子でなく）呼ぶのは正当。1 つ目のトランザクションが終わってから
 2 つ目を開始する分には何も起きない。

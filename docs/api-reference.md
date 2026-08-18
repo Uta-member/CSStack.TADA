@@ -28,7 +28,7 @@
 | 例外 | [`TADAException`](#tadaexception) ほか 2 個（[例外](#例外)） |
 
 > **ドメインサービスはこの表に出てこない。** かつての `IDomainService<TReq>` /
-> `IDomainService<TReq, TRes>` / `IDomainServiceDTO` は v3.0.0 で削除され、
+> `IDomainService<TReq, TRes>` / `IDomainServiceDTO` は v4.0.0 で削除され、
 > TADA が用意する型が無くなったため。口を立てる規約自体は残っている
 > → [use-case.md](use-case.md#3-種のサービスの使い分け)。
 
@@ -149,7 +149,7 @@ void Validate();                                  // IValueObject から継承
 `static abstract` を使うため **C# 11 以上が必要**。
 
 長さの上下限を公開したい値オブジェクトは、`ILengthDefinedSingleValueObject`
-（v3.0.0 で削除）を介さず、`public static int MaxLength => ...;` / `MinLength` を
+（v4.0.0 で削除）を介さず、`public static int MaxLength => ...;` / `MinLength` を
 **素の static メンバーとして**宣言するだけでよい。公開するだけで強制はしない。
 
 → [domain-model.md](domain-model.md#値オブジェクト)
@@ -258,7 +258,7 @@ public sealed class UserAggregateService<TSession>
 
 ## ドメインサービス（TADA 由来の型は無い）
 
-`IDomainService<TReq>` / `IDomainService<TReq, TRes>` / `IDomainServiceDTO` は v3.0.0 で
+`IDomainService<TReq>` / `IDomainService<TReq, TRes>` / `IDomainServiceDTO` は v4.0.0 で
 削除された。集約サービスやユースケースと違い、ドメインサービスは扱う対象・引数・戻り値の形が
 プロジェクトごとに柔軟すぎて、共通の親インターフェースを立てても「メソッド名と Req/Res の形を
 強制するだけ」の効果しかなく、実際に使う場面がほとんど無かったため。
@@ -580,7 +580,7 @@ Exception
 **ドメイン向けの例外クラス（不在・重複・不変条件違反など）はもう提供しない。**
 かつてあった `DomainInvalidOperationException` / `ObjectAlreadyExistException` /
 `ObjectNotFoundException` / `ValueObjectInvalidException` / `ValueObjectNullException` /
-`ValueObjectLengthException` は v3.0.0 で削除された。中途半端なヘルパーを提供するより、
+`ValueObjectLengthException` は v4.0.0 で削除された。中途半端なヘルパーを提供するより、
 各プロジェクトが自分のドメインの語彙で例外を定義したほうが健全と判断したため。
 何を投げるかは利用側が決める（単純な不変条件なら `ArgumentException` のような
 BCL の例外で足りることもある）

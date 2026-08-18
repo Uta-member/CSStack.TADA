@@ -361,3 +361,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Claude Code: PostToolUse フックが持つバージョン変更検知用のローカルキャッシュ
+.claude/.version-bump-last-seen
